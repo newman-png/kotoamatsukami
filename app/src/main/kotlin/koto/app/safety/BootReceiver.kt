@@ -3,6 +3,7 @@ package koto.app.safety
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import koto.app.ai.PlannerRunner
 import koto.app.spell.KotoService
 import koto.app.spell.SpellScheduler
 
@@ -14,5 +15,6 @@ class BootReceiver : BroadcastReceiver() {
         KotoService.start(context)
         Driving.register(context)
         SpellScheduler.tick(context)
+        PlannerRunner.schedule(context)
     }
 }

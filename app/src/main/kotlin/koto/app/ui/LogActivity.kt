@@ -32,7 +32,9 @@ class LogActivity : KotoActivity() {
         for (r in rows) {
             val parts = listOfNotNull(
                 TIME.format(Instant.ofEpochMilli(r.startedAt).atZone(ZoneId.systemDefault())),
-                r.task + if (r.floor) " (floor)" else "",
+                // Planned tasks have day-book ids; name them by what they were instead.
+                (if ('#' in r.task) listOf(r.domain, r.kind, r.topic).filter { it.isNotEmpty() }.joinToString(" ") else r.task) +
+                    if (r.floor) " (floor)" else "",
                 r.outcome ?: "running",
                 r.latencyMs?.let { "%.1fs".format(it / 1000.0) },
                 r.feedback?.label,

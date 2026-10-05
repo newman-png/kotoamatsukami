@@ -3,6 +3,7 @@ package koto.app.ui
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -16,6 +17,7 @@ import android.view.WindowInsets
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
 import koto.core.art.EyeForm
 import koto.core.art.EyeSprite
@@ -91,6 +93,39 @@ class Term(private val activity: Activity) {
             setSize((small / 3).toInt(), small.toInt())
         }
         column.addView(this, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+    }
+
+    /** A one-line text field. */
+    fun field(text: String, hint: String = "", numeric: Boolean = false): EditText = input(text).apply {
+        minLines = 1
+        isSingleLine = true
+        inputType = if (numeric) InputType.TYPE_CLASS_NUMBER else InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        this.hint = hint
+        setHintTextColor(Pixel.GREY)
+    }
+
+    /** A labelled slider over positions 0..[max]; [label] renders the current position. */
+    fun slider(max: Int, position: Int, label: (Int) -> String, onChange: (Int) -> Unit): SeekBar {
+        val text = line(label(position))
+        return SeekBar(ctx).apply {
+            this.max = max
+            progress = position
+            val white = ColorStateList.valueOf(Pixel.WHITE)
+            progressTintList = white
+            thumbTintList = white
+            progressBackgroundTintList = ColorStateList.valueOf(Pixel.GREY)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar: SeekBar, value: Int, fromUser: Boolean) {
+                    text.text = label(value)
+                    onChange(value)
+                }
+
+                override fun onStartTrackingTouch(bar: SeekBar) {}
+
+                override fun onStopTrackingTouch(bar: SeekBar) {}
+            })
+            column.addView(this, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        }
     }
 
     fun show() = activity.setContentView(scroll)

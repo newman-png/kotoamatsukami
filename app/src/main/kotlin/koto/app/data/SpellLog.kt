@@ -7,14 +7,17 @@ import android.database.sqlite.SQLiteOpenHelper
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import koto.core.plan.SpellRecord
+import koto.core.spell.Domain
 import koto.core.spell.Feedback
 import koto.core.spell.Outcome
 import koto.core.spell.Source
 import koto.core.spell.SpellTask
+import koto.core.spell.TaskKind
 import java.util.concurrent.Executors
 
 /** Local database. Nothing in it ever leaves the phone. */
-class KotoDb(context: Context) : SQLiteOpenHelper(context.applicationContext, "koto.db", null, 1) {
+class KotoDb(context: Context) : SQLiteOpenHelper(context.applicationContext, "koto.db", null, 2) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -32,7 +35,9 @@ class KotoDb(context: Context) : SQLiteOpenHelper(context.applicationContext, "k
                 active_ms INTEGER,
                 mark INTEGER NOT NULL DEFAULT 0,
                 feedback TEXT,
-                ended_at INTEGER
+                ended_at INTEGER,
+                topic TEXT NOT NULL DEFAULT '',
+                planned_s INTEGER NOT NULL DEFAULT 0
             )
             """.trimIndent(),
         )
@@ -41,7 +46,13 @@ class KotoDb(context: Context) : SQLiteOpenHelper(context.applicationContext, "k
         db.execSQL("CREATE INDEX opens_at ON opens(at)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            // Layer 3: the goal topic and the planned length, for the planner's statistics.
+            db.execSQL("ALTER TABLE spells ADD COLUMN topic TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE spells ADD COLUMN planned_s INTEGER NOT NULL DEFAULT 0")
+        }
+    }
 }
 
 /** One logged takeover, as read back for the log screen (and later the weekly report). */
@@ -58,6 +69,8 @@ data class SpellRow(
     val activeMs: Long?,
     val mark: Boolean,
     val feedback: Feedback?,
+    val domain: String = "",
+    val topic: String = "",
 )
 
 /**
@@ -87,7 +100,7 @@ object SpellLog {
         }
     }
 
-    fun started(context: Context, id: String, task: SpellTask, floor: Boolean, level: Int, source: Source, atMs: Long) =
+    fun started(context: Context, id: String, task: SpellTask, floor: Boolean, level: Int, source: Source, plannedSeconds: Int, atMs: Long) =
         write(context, "start") {
             it.insert("spells", null, ContentValues().apply {
                 put("id", id)
@@ -98,6 +111,8 @@ object SpellLog {
                 put("level", level)
                 put("source", source.name.lowercase())
                 put("started_at", atMs)
+                put("topic", task.topic)
+                put("planned_s", plannedSeconds)
             })
         }
 
@@ -124,6 +139,56 @@ object SpellLog {
         it.delete("opens", "at < ?", arrayOf((atMs - KEEP_OPENS_MS).toString()))
     }
 
+    /**
+     * Every takeover started in [fromMs, toMs), as the planner reads them. Blocking: planner
+     * thread, or small ranges only.
+     */
+    fun records(context: Context, fromMs: Long, toMs: Long): List<SpellRecord> {
+        val out = ArrayList<SpellRecord>()
+        try {
+            db(context).rawQuery(
+                "SELECT started_at, kind, domain, topic, source, floor, planned_s, outcome, active_ms, latency_ms, feedback " +
+                    "FROM spells WHERE started_at >= ? AND started_at < ? ORDER BY started_at",
+                arrayOf(fromMs.toString(), toMs.toString()),
+            ).use { c ->
+                while (c.moveToNext()) {
+                    out += SpellRecord(
+                        startedAtMs = c.getLong(0),
+                        kind = enumOr(c.getString(1), TaskKind.PULSE),
+                        domain = enumOr(c.getString(2), Domain.FOCUS),
+                        topic = c.getString(3).orEmpty(),
+                        source = enumOr(c.getString(4), Source.SCHEDULE),
+                        floor = c.getInt(5) == 1,
+                        plannedSeconds = c.getInt(6),
+                        outcome = c.getString(7)?.let { o -> Outcome.entries.firstOrNull { it.name.equals(o, ignoreCase = true) } },
+                        activeMs = if (c.isNull(8)) 0 else c.getLong(8),
+                        latencyMs = if (c.isNull(9)) null else c.getLong(9),
+                        feedback = Feedback.fromCode(c.getString(10)),
+                    )
+                }
+            }
+        } catch (e: RuntimeException) {
+            Log.e(TAG, "record read failed", e)
+        }
+        return out
+    }
+
+    /** Distraction-app opens in [fromMs, toMs). Blocking, like [records]. */
+    fun opens(context: Context, fromMs: Long, toMs: Long): List<Long> {
+        val out = ArrayList<Long>()
+        try {
+            db(context).rawQuery("SELECT at FROM opens WHERE at >= ? AND at < ? ORDER BY at", arrayOf(fromMs.toString(), toMs.toString())).use { c ->
+                while (c.moveToNext()) out += c.getLong(0)
+            }
+        } catch (e: RuntimeException) {
+            Log.e(TAG, "open read failed", e)
+        }
+        return out
+    }
+
+    private inline fun <reified E : Enum<E>> enumOr(name: String?, fallback: E): E =
+        enumValues<E>().firstOrNull { it.name.equals(name, ignoreCase = true) } ?: fallback
+
     /** Reads on the log thread (after any pending writes) and answers on the main thread. */
     fun recent(context: Context, limit: Int, sinceMs: Long, answer: (List<SpellRow>, Int) -> Unit) {
         val app = context.applicationContext
@@ -133,7 +198,7 @@ object SpellLog {
             try {
                 val db = db(app)
                 db.rawQuery(
-                    "SELECT id, task, kind, floor, level, source, started_at, latency_ms, outcome, active_ms, mark, feedback " +
+                    "SELECT id, task, kind, floor, level, source, started_at, latency_ms, outcome, active_ms, mark, feedback, domain, topic " +
                         "FROM spells ORDER BY started_at DESC LIMIT ?",
                     arrayOf(limit.toString()),
                 ).use { c ->
@@ -151,6 +216,8 @@ object SpellLog {
                             activeMs = if (c.isNull(9)) null else c.getLong(9),
                             mark = c.getInt(10) == 1,
                             feedback = Feedback.fromCode(c.getString(11)),
+                            domain = c.getString(12).orEmpty(),
+                            topic = c.getString(13).orEmpty(),
                         )
                     }
                 }

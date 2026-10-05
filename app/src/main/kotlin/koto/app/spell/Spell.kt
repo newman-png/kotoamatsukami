@@ -151,7 +151,7 @@ object Spell {
         lastCallCheck = nowElapsed
         lastHeartbeat = nowElapsed
         Store(ctx).pushRecentTask(task.id)
-        SpellLog.started(ctx, l.id, task, floor = level >= Escalation.FLOOR_LEVEL, level, source, System.currentTimeMillis())
+        SpellLog.started(ctx, l.id, task, floor = level >= Escalation.FLOOR_LEVEL, level, source, version.seconds, System.currentTimeMillis())
 
         acquireWakeLock(ctx, l.durationMs)
         val engine = CueEngine(ctx) { onFocusLost() }

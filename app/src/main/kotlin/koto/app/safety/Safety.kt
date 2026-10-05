@@ -2,6 +2,7 @@ package koto.app.safety
 
 import android.content.Context
 import android.util.Log
+import koto.app.ai.PlannerRunner
 import koto.app.data.Store
 import koto.app.notify.Notices
 import koto.app.spell.KotoService
@@ -62,6 +63,7 @@ object Safety {
         step("lease") { files(context).clearLease() }
         step("watchdog") { Watchdog.cancel(context) }
         step("schedule") { SpellScheduler.cancel(context) }
+        step("planner") { PlannerRunner.cancel(context) }
         step("driving") { Driving.unregister(context) }
         step("service") { KotoService.stop(context) }
         step("notification") { Notices.cancelSpell(context) }
@@ -76,6 +78,7 @@ object Safety {
         step("service") { KotoService.start(context) }
         step("driving") { Driving.register(context) }
         step("schedule") { SpellScheduler.tick(context) }
+        step("planner") { PlannerRunner.schedule(context) }
     }
 
     private inline fun step(name: String, block: () -> Unit) {

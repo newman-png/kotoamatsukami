@@ -6,17 +6,24 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import koto.app.ai.PlanKeeper
+import koto.app.data.PlanStore
 import koto.app.data.Store
 import koto.app.safety.CallGuard
 import koto.app.safety.Driving
 import koto.app.safety.Safety
+import koto.core.plan.Books
+import koto.core.plan.DayComposer
+import koto.core.plan.Placement
 import koto.core.safety.LockKind
+import koto.core.spell.Escalation
 import koto.core.spell.Followup
 import koto.core.spell.ReactiveDetector
 import koto.core.spell.ReactiveRule
 import koto.core.spell.Source
 import koto.core.spell.SpellTask
 import koto.core.spell.TaskCatalog
+import koto.core.spell.TaskKind
 import koto.core.time.DayPlan
 import koto.core.time.DayPlanner
 import koto.core.time.FireContext
@@ -25,6 +32,7 @@ import koto.core.time.FirePolicy
 import koto.core.time.Slot
 import koto.core.time.SpellConfig
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 import kotlin.random.Random
@@ -60,19 +68,11 @@ object SpellScheduler {
         var plan = store.plan()
         val wakingDate = config.windows.wakingDateOf(now)
         if (wakingDate != null && plan?.wakingDate != wakingDate.toString()) {
-            val times = DayPlanner.plan(
-                date = wakingDate,
-                windows = config.windows,
-                count = config.spellsPerDay,
-                random = Random.Default,
-                notBefore = now.plusMinutes(2),
-            )
-            val sieges = times.indices.shuffled(Random.Default).take(config.siegesPerDay).toSet()
-            val fresh = times.mapIndexed { i, t -> Slot(t.atZone(zone).toInstant().toEpochMilli(), siege = i in sieges) }
+            val fresh = planDay(context, config, wakingDate, now, zone)
             // Returning tasks and tests carry over into the new day.
             val carried = plan?.slots.orEmpty().filter { it.atMs > nowMs && it.source != Source.SCHEDULE }
             plan = DayPlan(wakingDate.toString(), (fresh + carried).sortedBy { it.atMs })
-            Log.i(TAG, "planned ${times.size} takeovers (${sieges.size} sieges) for $wakingDate")
+            Log.i(TAG, "planned ${fresh.size} takeovers (${fresh.count { it.siege }} sieges) for $wakingDate")
         }
 
         val remaining = ArrayList<Slot>()
@@ -83,9 +83,10 @@ object SpellScheduler {
                 nowMs - slot.atMs > MISSED_AFTER_MS -> Log.i(TAG, "dropped missed slot")
                 fired -> remaining += slot.copy(atMs = nowMs + COLLISION_PUSH_MS)
                 else -> when (val d = decide(context, config, now, slot)) {
-                    FireDecision.Fire -> {
-                        fired = fire(context, config, now, slot)
-                        if (!fired) remaining += slot.copy(atMs = nowMs + COLLISION_PUSH_MS, deferrals = slot.deferrals + 1)
+                    FireDecision.Fire -> when (fire(context, config, now, slot)) {
+                        Fired.STARTED -> fired = true
+                        Fired.BUSY -> remaining += slot.copy(atMs = nowMs + COLLISION_PUSH_MS, deferrals = slot.deferrals + 1)
+                        Fired.DROPPED -> Unit
                     }
                     is FireDecision.Defer -> {
                         Log.i(TAG, "deferred ${d.minutes} min: ${d.reason}")
@@ -141,7 +142,7 @@ object SpellScheduler {
 
         val ambush = slots.filter { (it.ambushAfterMs ?: Long.MAX_VALUE) <= nowMs }.minByOrNull { it.atMs }
         if (ambush != null) {
-            if (decide(context, config, now, ambush) == FireDecision.Fire && fire(context, config, now, ambush)) {
+            if (decide(context, config, now, ambush) == FireDecision.Fire && fire(context, config, now, ambush) != Fired.BUSY) {
                 savePlan(store, plan, slots - ambush)
                 tick(context)
             }
@@ -160,15 +161,27 @@ object SpellScheduler {
         context.getSystemService(AlarmManager::class.java)?.cancel(pendingIntent(context))
     }
 
-    private fun fire(context: Context, config: SpellConfig, now: LocalDateTime, slot: Slot): Boolean {
+    private enum class Fired { STARTED, BUSY, DROPPED }
+
+    private fun fire(context: Context, config: SpellConfig, now: LocalDateTime, slot: Slot): Fired {
         val task = taskFor(context, config, now, slot)
+        if (task == null) {
+            Log.i(TAG, "dropped ${slot.taskId}: the siege no longer fits")
+            return Fired.DROPPED
+        }
         Log.i(TAG, "firing ${task.id} (${slot.source}, level ${slot.level})")
-        return Spell.start(context, task, slot.source, slot.level)
+        return if (Spell.start(context, task, slot.source, slot.level)) Fired.STARTED else Fired.BUSY
     }
 
-    /** A pinned task, else a siege that fits the window and the siege limit, else a pulse. */
-    private fun taskFor(context: Context, config: SpellConfig, now: LocalDateTime, slot: Slot): SpellTask {
-        slot.taskId?.let(TaskCatalog::byId)?.let { return it }
+    /**
+     * A pinned task (the day's book or the catalog), else a siege that fits the window and the
+     * siege limit, else a pulse. Null when a planned siege no longer fits even cut short.
+     */
+    private fun taskFor(context: Context, config: SpellConfig, now: LocalDateTime, slot: Slot): SpellTask? {
+        slot.taskId?.let { id -> TaskCatalog.byId(id) ?: PlanKeeper.task(context, id) }?.let {
+            // Tests ignore the windows, so they aren't cut to them either.
+            return if (slot.source == Source.TEST) it else fitted(it, config, now, slot.level)
+        }
         if (slot.siege) {
             val limitMinutes = (config.limits.maxMs(LockKind.SIEGE) / 60_000L).toInt() - 1
             val siege = TaskCatalog.SIEGES
@@ -177,6 +190,47 @@ object SpellScheduler {
             if (siege != null) return siege
         }
         return TaskCatalog.pick(Random.Default, Store(context).recentTaskIds())
+    }
+
+    /**
+     * The day's takeovers: from the plan's book when there is a plan, placed inside the windows
+     * as they are now. Before the plan is ready, Layer 2's random pulses, and no sieges while the
+     * plan is being prepared: early takeovers are meant to be easy.
+     */
+    private fun planDay(context: Context, config: SpellConfig, date: LocalDate, now: LocalDateTime, zone: ZoneId): List<Slot> {
+        val book = try {
+            PlanKeeper.bookFor(context, date, config)
+        } catch (e: RuntimeException) {
+            Log.e(TAG, "no book for $date; using random pulses", e)
+            null
+        }
+        if (book != null) {
+            val times = Placement.place(date, config.windows, Books.siegeMinutes(book), Random.Default, notBefore = now.plusMinutes(2))
+            return book.tasks.zip(times).mapNotNull { (task, t) ->
+                t?.let { Slot(it.atZone(zone).toInstant().toEpochMilli(), taskId = task.id, siege = task.kind == TaskKind.SIEGE) }
+            }
+        }
+        val times = DayPlanner.plan(
+            date = date,
+            windows = config.windows,
+            count = config.spellsPerDay,
+            random = Random.Default,
+            notBefore = now.plusMinutes(2),
+        )
+        val siegeCount = if (PlanStore(context).profile() != null) 0 else config.siegesPerDay
+        val sieges = times.indices.shuffled(Random.Default).take(siegeCount).toSet()
+        return times.mapIndexed { i, t -> Slot(t.atZone(zone).toInstant().toEpochMilli(), siege = i in sieges) }
+    }
+
+    /** A siege as long as still fits before the windows close and inside the lock limit; null if not even five minutes do. */
+    private fun fitted(task: SpellTask, config: SpellConfig, now: LocalDateTime, level: Int): SpellTask? {
+        if (task.kind != TaskKind.SIEGE) return task
+        val limit = PlanKeeper.maxSiegeMinutes(config)
+        val minutes = Escalation.version(task, level).seconds / 60
+        fun fits(m: Int) = m <= limit && config.windows.allowsSpan(now, m + Placement.SIEGE_MARGIN_MINUTES)
+        if (fits(minutes)) return task
+        val shorter = (minutes / 5 * 5 downTo DayComposer.MIN_SIEGE step 5).firstOrNull { fits(it) } ?: return null
+        return Books.shortened(task, shorter)
     }
 
     private fun addSlot(context: Context, slot: Slot) {

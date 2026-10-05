@@ -4,7 +4,7 @@ A genjutsu for your goals. Surprise takeovers, hidden AI plan, zero decisions. A
 
 Single user, sideloaded, no accounts, no backend. Architecture and every design call: [DECISIONS.md](DECISIONS.md).
 
-**Built so far: Layers 0-2.** Safety (0), the takeover and its cue (1), and logging, feedback, skip escalation, sieges with app blocking, and reactive spells (2). Tasks still come from a fixed list; the AI planner is Layer 3.
+**Built so far: Layers 0-3.** Safety (0), the takeover and its cue (1), logging, feedback, skip escalation, sieges with app blocking and reactive spells (2), and the setup flow with the hidden AI plan (3). The plan is made by a local model (Ollama) on your laptop, at night, over your home network.
 
 ---
 
@@ -66,7 +66,8 @@ Open **Kotoamatsukami**.
    - *phone state* (recommended): a second call detector.
    - *alarm volume*, *display over apps* (optional).
    - On Xiaomi, Samsung, Huawei, OnePlus and similar phones, also allow auto-start / "never sleeping" for the app: see [dontkillmyapp.com](https://dontkillmyapp.com).
-2. **`windows`.** Edit the rules and tap `save`. One rule per line:
+2. **`setup`.** Answer once: what you want, your deadlines, where you are now (sliders), which goal wins, and where the laptop is (see [The laptop](#the-laptop-layer-3)). The last steps are the windows and the consent screen.
+3. **`windows`** (also part of setup). Edit the rules and tap `save`. One rule per line:
 
    ```
    waking 07:30-23:00
@@ -85,20 +86,84 @@ Open **Kotoamatsukami**.
    - `quiet`: never take over during these hours, every day.
    - `protect <days> <from-to> <label>`: never take over during these blocks. Days are `mon`…`sun`, ranges like `mon-fri`, lists like `sat,sun`, or `daily` / `weekdays` / `weekends`.
    - `limit`: hard lock limits in minutes. Pulse is 1-10, siege is 1-180.
-   - `spells`: takeovers per day. `sieges`: how many of them are sieges (long locked blocks). The AI planner takes both over in Layer 3.
+   - `spells`: takeovers per day. `sieges`: how many of them are sieges (long locked blocks). Only used until the plan is ready: after setup the takeovers are easy pulses (no sieges), and once the plan exists it decides everything.
    - `distract`: apps that are locked during a siege and watched for scrolling. Use names (`instagram`, `tiktok`, `youtube`, `reddit`, `x`, `facebook`, `snapchat`, `threads`, `pinterest`, `netflix`, `twitch`, `tumblr`, `9gag`, `discord`) or package names (`com.example.app`). Without this rule the list above is used.
    - `reactive 3 60`: the 3rd open of those apps within 60 minutes triggers a takeover on the spot. `reactive off` turns it off.
 
    Invalid rules are listed with line numbers, and nothing is saved until every rule is valid.
-3. **`arm`.** This leads to the consent screen, which explains what will happen and how to get out.
+4. **`arm`.** This leads to the consent screen, which explains what will happen and how to get out.
 
-Once armed there is no "off" button. The escape hatch is the way off. The main screen shows `armed.` and nothing about what is coming.
+Once armed there is no "off" button and no way back into setup. The escape hatch is the way off. The main screen shows `armed.`, whether the plan is ready, and nothing about what is coming.
 
 ---
 
-## What to test now (Layer 2)
+## The laptop (Layer 3)
 
-Install the new build over the old one (or uninstall first if Android refuses: see [Option A](#option-a-download-the-apk-from-github-actions)). Your saved windows stay as they were, so **add `sieges 1` in `windows`** to get random sieges. Without `distract` and `reactive` lines the defaults above apply.
+The plan is made by [Ollama](https://ollama.com) on your laptop. The phone sends it a short summary (your setup answers and last week's results, never raw logs) over your home Wi-Fi, and only to a home-network address. Do this once on the Windows laptop:
+
+1. **Install Ollama** from ollama.com (Windows installer). It runs in the tray.
+2. **Download the model.** Open PowerShell and run:
+
+   ```
+   ollama pull qwen3:14b
+   ```
+
+   About 9 GB. On an RTX 2060 it runs partly on the CPU, slowly, which is fine at night. Optional, for faster nightly tasks: `ollama pull qwen3:8b`, then enter it as the night model in the app.
+3. **Let the phone reach it.** By default Ollama only listens to the laptop itself.
+   - Windows search → *Edit environment variables for your account* → *New*: name `OLLAMA_HOST`, value `0.0.0.0:11434`.
+   - Quit Ollama from the tray icon and start it again.
+4. **Firewall.** When Windows asks whether Ollama may use the network, allow **Private networks** only. If it never asked, run this in PowerShell *as administrator*:
+
+   ```
+   New-NetFirewallRule -DisplayName "Ollama (home network)" -Direction Inbound -Protocol TCP -LocalPort 11434 -Action Allow -Profile Private
+   ```
+
+   Your home Wi-Fi must be set to *Private* (Settings → Network & internet → Wi-Fi → your network → Private network).
+5. **Find the laptop's address.** PowerShell: `ipconfig`, then the *IPv4 Address* under your Wi-Fi adapter, e.g. `192.168.1.20`. In your router's settings, reserve that address for the laptop (often called *DHCP reservation* or *static lease*) so it doesn't change.
+6. **Keep it awake at night.** Settings → System → Power → *When plugged in, put my device to sleep after*: **Never**. Leave it plugged in.
+7. **Check from the phone.** Open `http://192.168.1.20:11434` (your address) in the phone's browser. It should say *Ollama is running*.
+
+In the app, the setup step `The laptop` (or `laptop` on the main screen) takes the address, the port (`11434`) and the model names, and `test the laptop` should answer *Reached. qwen3:14b ready.*
+
+When the laptop is off, nothing breaks: the phone builds the day itself from the plan, with simpler wording.
+
+---
+
+## What to test now (Layer 3)
+
+Install the new build over the old one (or uninstall first if Android refuses: see [Option A](#option-a-download-the-apk-from-github-actions)). Your windows and log stay. Set up the laptop first ([The laptop](#the-laptop-layer-3)).
+
+**Setup**
+
+1. The main screen now offers `setup` (until you have done it once, even while armed). Go through it: what you want, deadlines (one per line, `2027-01-18 Linear algebra exam`), the sliders, tap the priorities in order, then the laptop: `test the laptop` should answer *Reached. qwen3:14b ready.* Then windows, then `done`.
+2. Try to break it: a deadline like `18/01/2027 exam`, a date in the past, waking hours that leave under 8 hours of sleep (`waking 06:00-23:30`). Each should be refused with the reason, and nothing saved.
+3. The main screen says `plan: being prepared.` While the laptop is working it adds *the laptop is working.* On the laptop, `ollama ps` in PowerShell shows the model loaded.
+
+**The plan**
+
+4. The first plan takes a while: 4 drafts, each checked by code and reviewed by a critic. Expect 30 minutes to a few hours with a 14B model on that GPU. Until it's ready, takeovers are short easy pulses and never sieges.
+5. When it's done the main screen says `plan: ready.` and nothing more: you never see the plan.
+6. If something goes wrong, the line under it says what (for example *Laptop not reached: ...*). `laptop` → `try now` starts again at once.
+
+**The days**
+
+7. The plan starts on the next waking day. **Weeks 1-2 are conditioning**: every takeover is a 10-20 second task. Among them, one scouting task a day about your actual goals (e.g. *Open the linear algebra notes.*), and Italian words. After `done` the translation shows (*stanco: tired.*).
+8. From week 3 the foundation starts: walks, workouts on the workout days, cleaning, as sieges (*Walk. 10 minutes. Go.*). From goal mode (week 3-5) also study, Italian and career blocks (*Linear algebra. 35 minutes. Go.*), growing slowly. One day a week is lighter. About every 4th week is lighter, but never the week of an exam or the week before.
+9. `log` names planned tasks by what they were (*study siege linear algebra*), still only results.
+
+**Laptop off**
+
+10. Turn the laptop off for a night. The next day still has takeovers (the phone builds the day from the plan). The main screen notes *Laptop not reached*. Turn it back on; the next night is back to normal with nothing for you to do.
+
+**Privacy**
+
+11. In `laptop`, enter a public address such as `8.8.8.8` and `test the laptop`. It must refuse: *8.8.8.8 is not on the home network.* Put your address back and `save`.
+
+Report: did setup feel like a short conversation; how long the first plan took; whether week-1 takeovers felt easy; any task that sounded wrong, invented or cheerful.
+
+### Layer 2 checks (passed on the phone; rerun after big updates)
+
+Use `test spell` and `test siege`: once a plan exists, real sieges only come from the plan (from week 3).
 
 **Feedback and the log**
 
@@ -121,8 +186,6 @@ Install the new build over the old one (or uninstall first if Android refuses: s
 8. When a random takeover comes, tap `skip`. It should say "Later. Marked.".
 9. Wait at least 20 minutes, then open a `distract` app. The same task should come back right then (or by itself 45-120 minutes after the skip). `skip` it again.
 10. The next time it comes back it should be the smaller floor version **with no `skip`**. Its time limit and the escape hatch still apply.
-
-Report: does the siege lock hold; is the tick bearable for a long block; did the reactive spell catch you at the right moment; is anything in the escalation unfair.
 
 ### Layers 0 + 1 checks (passed on the phone; rerun after big updates)
 
@@ -174,11 +237,13 @@ Add these repository secrets (*Settings → Secrets and variables → Actions*):
 ## Development
 
 ```
-core/   pure Kotlin. Safety rules, scheduling, takeover state machine, eye sprite, sound synthesis. Unit-tested.
+core/   pure Kotlin. Safety rules, scheduling, takeover state machine, eye sprite, sound synthesis,
+        the plan (builder, validators, day composition, history) and the AI pipeline. Unit-tested.
 app/    Android framework code (no AndroidX). Services, receivers, screens, audio output.
 ```
 
-- `./gradlew :core:test` runs the unit tests: leases and limits, escape detectors, safe-mode policy, window parsing, random scheduling, fire/defer rules, the takeover state machine (pulses and sieges), escalation, reactive detection, metronome timing and visual-safety bounds.
+- `./gradlew :core:test` runs the unit tests: leases and limits, escape detectors, safe-mode policy, window parsing, random scheduling, fire/defer rules, the takeover state machine (pulses and sieges), escalation, reactive detection, metronome timing and visual-safety bounds. Layer 3 adds the plan validators against deliberately bad plans (impossible schedules, jumps, missing deload, wrong dates, sleep, starved priorities), the intent checks against invented quotes and deadlines, and the planner and night writer against a scripted fake model that sends malformed JSON, schema breaks, praise and exclamation marks, and pace that is too fast.
+- Prompts live in `core/src/main/resources/koto/prompts`. The model is behind `koto.core.ai.Llm`; `app/.../ai/OllamaClient.kt` is the only implementation.
 - `./gradlew :app:assembleDebug` builds the APK, and `./gradlew :app:lintDebug` runs lint.
 
 The pixel font is Departure Mono, © Helena Zhang, under the SIL Open Font License; see `app/src/main/assets/fonts/DepartureMono-OFL.txt`.

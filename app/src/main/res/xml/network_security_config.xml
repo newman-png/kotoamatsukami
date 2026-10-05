@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Ollama on a home laptop speaks plain HTTP, and Android can't scope cleartext to IP ranges.
+    Cleartext is allowed here; OllamaClient refuses every address outside the home network, and
+    nothing else in the app uses the network.
+-->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <base-config
+        cleartextTrafficPermitted="true"
+        tools:ignore="InsecureBaseConfiguration" />
+</network-security-config>
