@@ -41,7 +41,7 @@ import kotlin.random.Random
  */
 object PlannerRunner {
     private const val TAG = "koto.planner"
-    private const val WAKE_LOCK_MS = 3 * 3_600_000L
+    private const val WAKE_LOCK_MS = 6 * 3_600_000L
     private const val REPLAN_DRAFTS = 2
 
     private val worker = Executors.newSingleThreadExecutor { Thread(it, "koto-planner").apply { priority = Thread.MIN_PRIORITY } }

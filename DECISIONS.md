@@ -113,7 +113,7 @@ Universal last resorts (documented in the README): Android Safe Mode (long-press
 - **Nightly.** From 20 minutes after waking hours end, retried every 30 minutes until 30 minutes before the next day: re-plan if a week turns, then the next 2 days of tasks. Never more. If the laptop is off, the phone composes the day in code at day start (templates), so takeovers never stop.
 - **What is sent.** The compact state document (`CompactState`): profile, goals, where the plan stands, last week's summary, older weeks one line each (up to 8). For nightly tasks also yesterday's few lines and the list of slots to word. Raw logs never.
 - **Home network only.** The client resolves the address and refuses anything that isn't loopback, private (10/8, 172.16/12, 192.168/16), link-local, 100.64/10 (Tailscale) or IPv6 ULA. Ollama speaks plain HTTP and Android can't allow cleartext per IP range, so cleartext is allowed app-wide; nothing else in the app uses the network.
-- **Process.** A background thread in the main process, kept alive by the existing `specialUse` foreground service and a partial wake lock (at most 3 h), woken by an exact alarm. The battery-optimisation exemption from Layer 1 keeps the network up in Doze.
+- **Process.** A background thread in the main process, kept alive by the existing `specialUse` foreground service and a partial wake lock (at most 6 h), woken by an exact alarm. The battery-optimisation exemption from Layer 1 keeps the network up in Doze.
 
 ## 9. Decisions on OPEN items
 
