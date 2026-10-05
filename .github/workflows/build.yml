@@ -1,0 +1,55 @@
+name: build
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Optional: a stable signing key from repository secrets, so each build installs over the last.
+      - name: Signing key
+        env:
+          KOTO_KEYSTORE_BASE64: ${{ secrets.KOTO_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KOTO_KEYSTORE_BASE64" ]; then
+            echo "$KOTO_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/koto.keystore"
+            echo "KOTO_KEYSTORE_FILE=$RUNNER_TEMP/koto.keystore" >> "$GITHUB_ENV"
+            echo "Using the stable signing key."
+          else
+            echo "No KOTO_KEYSTORE_BASE64 secret: using a throwaway debug key."
+          fi
+
+      - name: Core tests
+        run: ./gradlew --no-daemon :core:test
+
+      - name: Build APK
+        env:
+          KOTO_KEYSTORE_PASSWORD: ${{ secrets.KOTO_KEYSTORE_PASSWORD }}
+          KOTO_KEY_ALIAS: ${{ secrets.KOTO_KEY_ALIAS }}
+          KOTO_KEY_PASSWORD: ${{ secrets.KOTO_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon :app:assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kotoamatsukami-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Lint
+        run: ./gradlew --no-daemon :app:lintDebug
+
+      - name: Lint report
+        if: always()
+        run: cat app/build/reports/lint-results-debug.txt 2>/dev/null || echo "no lint report"

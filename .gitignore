@@ -1,0 +1,14 @@
+# Gradle / IDE
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+captures/
+.kotlin/
+
+# Secrets: never commit
+koto.local.properties
+*.keystore
+*.jks
