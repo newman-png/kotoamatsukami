@@ -111,6 +111,40 @@ class WindowsTest {
     }
 
     @Test
+    fun `layer 2 rules parse, with defaults when absent`() {
+        val bare = parse("waking 08:00-22:00")
+        assertEquals(0, bare.siegesPerDay)
+        assertEquals(koto.core.spell.Distractions.DEFAULT_PACKAGES, bare.distractions)
+        assertEquals(koto.core.spell.ReactiveRule(3, 60), bare.reactive)
+
+        val c = parse("waking 08:00-22:00\nspells 5\nsieges 2\ndistract instagram com.example.feed\ndistract youtube\nreactive 4 30")
+        assertEquals(2, c.siegesPerDay)
+        assertEquals(setOf("com.instagram.android", "com.example.feed", "com.google.android.youtube"), c.distractions)
+        assertEquals(koto.core.spell.ReactiveRule(4, 30), c.reactive)
+        assertNull(parse("waking 08:00-22:00\nreactive off").reactive)
+    }
+
+    @Test
+    fun `layer 2 rules reject nonsense`() {
+        val r = SpellConfigParser.parse(
+            "waking 08:00-22:00\nspells 2\nsieges 3\ndistract instagran\nreactive 1 60\nreactive 3",
+        )
+        assertIs<ConfigParse.Invalid>(r)
+        assertEquals(listOf(0, 4, 5, 6), r.errors.map { it.line }.sorted())
+        val tooMany = SpellConfigParser.parse("waking 08:00-22:00\nspells 1\nsieges 2")
+        assertIs<ConfigParse.Invalid>(tooMany)
+    }
+
+    @Test
+    fun `a siege fits only if every minute of it is allowed`() {
+        val w = parse("waking 08:00-22:00\nprotect daily 12:00-13:00 lunch").windows
+        assertTrue(w.allowsSpan(at(monday, 10), 50))
+        assertFalse(w.allowsSpan(at(monday, 11, 30), 50))
+        assertTrue(w.allowsSpan(at(monday, 11, 10), 50))
+        assertFalse(w.allowsSpan(at(monday, 21, 30), 50))
+    }
+
+    @Test
     fun `allowed minutes exclude every blocked minute`() {
         val w = parse("waking 08:00-10:00\nprotect daily 09:00-09:30 x").windows
         val minutes = w.allowedMinutes(monday)

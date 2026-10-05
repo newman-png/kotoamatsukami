@@ -2,18 +2,30 @@ package koto.core.time
 
 import koto.core.safety.LockKind
 import koto.core.safety.LockLimits
+import koto.core.spell.Distractions
+import koto.core.spell.ReactiveRule
 import java.time.DayOfWeek
 import java.time.LocalTime
 
-/** Everything the scheduler needs before the setup flow exists (Layer 3 replaces [spellsPerDay]). */
+/**
+ * Everything the scheduler needs before the setup flow exists. Layer 3's planner takes over
+ * [spellsPerDay] and [siegesPerDay].
+ */
 data class SpellConfig(
     val windows: Windows,
     val limits: LockLimits = LockLimits(),
     val spellsPerDay: Int = DEFAULT_SPELLS,
+    /** How many of the day's takeovers are sieges. */
+    val siegesPerDay: Int = 0,
+    /** Package names locked during sieges and watched for reactive spells. */
+    val distractions: Set<String> = Distractions.DEFAULT_PACKAGES,
+    /** Null when reactive spells are off. */
+    val reactive: ReactiveRule? = ReactiveRule(),
 ) {
     companion object {
         const val DEFAULT_SPELLS = 6
         const val MAX_SPELLS = 20
+        const val MAX_SIEGES = 4
 
         val TEMPLATE = """
             # one rule per line. times are 24h.
@@ -25,7 +37,13 @@ data class SpellConfig(
             # hard limits in minutes
             limit pulse ${LockLimits.DEFAULT_PULSE_MINUTES}
             limit siege ${LockLimits.DEFAULT_SIEGE_MINUTES}
+            # takeovers per day, and how many of them are sieges
             spells $DEFAULT_SPELLS
+            sieges 1
+            # apps locked during sieges and watched for scrolling
+            distract ${Distractions.DEFAULT_NAMES.joinToString(" ")}
+            # the 3rd open of those apps within 60 minutes triggers a takeover (or: reactive off)
+            reactive ${ReactiveRule.DEFAULT_OPENS} ${ReactiveRule.DEFAULT_WINDOW_MINUTES}
         """.trimIndent()
     }
 }
@@ -54,9 +72,17 @@ object SpellConfigParser {
         }
         val waking = b.waking
         if (waking == null) errors += ConfigError(0, "waking hours are required")
+        if (b.sieges > b.spells) errors += ConfigError(0, "sieges (${b.sieges}) can't exceed spells (${b.spells})")
         if (errors.isNotEmpty() || waking == null) return ConfigParse.Invalid(errors)
         return ConfigParse.Ok(
-            SpellConfig(Windows(waking, b.quiet, b.blocks), LockLimits(b.pulse, b.siege), b.spells),
+            SpellConfig(
+                windows = Windows(waking, b.quiet, b.blocks),
+                limits = LockLimits(b.pulse, b.siege),
+                spellsPerDay = b.spells,
+                siegesPerDay = b.sieges,
+                distractions = b.distract?.toSet() ?: Distractions.DEFAULT_PACKAGES,
+                reactive = b.reactive,
+            ),
         )
     }
 
@@ -67,6 +93,9 @@ object SpellConfigParser {
         var pulse = LockLimits.DEFAULT_PULSE_MINUTES
         var siege = LockLimits.DEFAULT_SIEGE_MINUTES
         var spells = SpellConfig.DEFAULT_SPELLS
+        var sieges = 0
+        var distract: MutableList<String>? = null
+        var reactive: ReactiveRule? = ReactiveRule()
 
         /** Applies one rule; returns an error message or null. */
         fun apply(words: List<String>): String? = when (words[0].lowercase()) {
@@ -97,7 +126,41 @@ object SpellConfigParser {
                     null
                 }
             }
+            "sieges" -> {
+                val count = words.getOrNull(1)?.toIntOrNull()
+                if (words.size != 2 || count == null || count !in 0..SpellConfig.MAX_SIEGES) {
+                    "sieges must be 0-${SpellConfig.MAX_SIEGES}"
+                } else {
+                    sieges = count
+                    null
+                }
+            }
+            "distract" -> distract(words)
+            "reactive" -> reactive(words)
             else -> "unknown rule '${words[0]}'"
+        }
+
+        private fun distract(words: List<String>): String? {
+            if (words.size < 2) return "expected: distract instagram tiktok youtube"
+            val list = distract ?: ArrayList<String>().also { distract = it }
+            for (w in words.drop(1)) {
+                list += Distractions.resolve(w) ?: return "unknown app '$w': use a name like instagram, or a package like com.example.app"
+            }
+            return null
+        }
+
+        private fun reactive(words: List<String>): String? {
+            if (words.size == 2 && words[1].lowercase() == "off") {
+                reactive = null
+                return null
+            }
+            val opens = words.getOrNull(1)?.toIntOrNull()
+            val minutes = words.getOrNull(2)?.toIntOrNull()
+            if (words.size != 3 || opens == null || minutes == null || opens !in 2..20 || minutes !in 5..240) {
+                return "expected: reactive 3 60 (opens 2-20, minutes 5-240) or reactive off"
+            }
+            reactive = ReactiveRule(opens, minutes)
+            return null
         }
 
         private fun protect(words: List<String>): String? {
@@ -131,7 +194,10 @@ object SpellConfigParser {
         config.windows.protectedBlocks.forEach { appendLine("protect ${renderDays(it.days)} ${it.range} ${it.label}") }
         appendLine("limit pulse ${config.limits.pulseMaxMinutes}")
         appendLine("limit siege ${config.limits.siegeMaxMinutes}")
-        append("spells ${config.spellsPerDay}")
+        appendLine("spells ${config.spellsPerDay}")
+        appendLine("sieges ${config.siegesPerDay}")
+        appendLine("distract ${config.distractions.sorted().joinToString(" ")}")
+        append(config.reactive?.let { "reactive ${it.opens} ${it.windowMinutes}" } ?: "reactive off")
     }
 
     fun parseTime(s: String): LocalTime? {

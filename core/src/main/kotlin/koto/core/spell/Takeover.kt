@@ -4,8 +4,11 @@ enum class Outcome {
     /** The task was performed (timer ran out after begin, or done was tapped). */
     DONE,
 
-    /** The user declined. */
+    /** The user declined before starting. */
     SKIPPED,
+
+    /** A siege was begun and then stopped before its end. */
+    ABANDONED,
 
     /** Nobody answered before the call window or the lease ran out. */
     TIMEOUT,
@@ -21,7 +24,10 @@ enum class Outcome {
  * The life of one takeover, independent of Android. All times are monotonic milliseconds.
  *
  * Calling (cue running, waiting for begin) -> Active (task timer, paced metronome) -> Ended.
- * Every path ends, at the latest when the lease ends, so the screen can never be held longer.
+ * Every path ends, at the latest when the lease ends, so nothing is ever held longer.
+ *
+ * A siege calls like a pulse, under a short pulse lease. On begin the host takes a siege lease
+ * and passes its end to [relock]; until then the long task can't hold anything.
  */
 class Takeover(
     val id: String,
@@ -29,7 +35,7 @@ class Takeover(
     val version: TaskVersion,
     val skippable: Boolean,
     val shownAtMs: Long,
-    val leaseEndMs: Long,
+    leaseEndMs: Long,
 ) {
     sealed interface Phase {
         data object Calling : Phase
@@ -37,14 +43,24 @@ class Takeover(
         data class Ended(val outcome: Outcome, val atMs: Long) : Phase
     }
 
+    val kind: TaskKind get() = task.kind
+
     var phase: Phase = Phase.Calling
+        private set
+
+    var leaseEndMs: Long = leaseEndMs
         private set
 
     private val taskMs: Long = version.seconds * 1_000L
 
-    /** Last moment begin is accepted: late enough to still finish the task inside the lease. */
-    val callDeadlineMs: Long = maxOf(shownAtMs + MIN_CALL_MS, leaseEndMs - taskMs - END_MARGIN_MS)
-        .coerceAtMost(leaseEndMs)
+    /**
+     * Last moment begin is accepted. A pulse must still fit inside its lease after begin; a siege
+     * gets a new lease on begin, so it may be begun until just before the call lease ends.
+     */
+    val callDeadlineMs: Long = when (task.kind) {
+        TaskKind.PULSE -> maxOf(shownAtMs + MIN_CALL_MS, leaseEndMs - taskMs - END_MARGIN_MS)
+        TaskKind.SIEGE -> maxOf(shownAtMs + MIN_CALL_MS, leaseEndMs - END_MARGIN_MS)
+    }.coerceAtMost(leaseEndMs)
 
     val ended: Boolean get() = phase is Phase.Ended
     val outcome: Outcome? get() = (phase as? Phase.Ended)?.outcome
@@ -53,11 +69,21 @@ class Takeover(
     var latencyMs: Long? = null
         private set
 
+    private var beganAtMs: Long? = null
+
     fun begin(atMs: Long): Boolean {
         if (phase != Phase.Calling) return false
         if (tick(atMs) != null) return false
         latencyMs = (atMs - shownAtMs).coerceAtLeast(0)
+        beganAtMs = atMs
         phase = Phase.Active(atMs)
+        return true
+    }
+
+    /** A begun siege moves to its own lease. Only ever applies to an active siege. */
+    fun relock(newLeaseEndMs: Long): Boolean {
+        if (kind != TaskKind.SIEGE || phase !is Phase.Active) return false
+        leaseEndMs = newLeaseEndMs
         return true
     }
 
@@ -68,8 +94,14 @@ class Takeover(
     }
 
     fun skip(atMs: Long): Boolean {
-        if (!skippable || ended) return false
+        if (!skippable || phase != Phase.Calling) return false
         return end(Outcome.SKIPPED, atMs)
+    }
+
+    /** Stop a running siege early. Counts like a skip, so only where a skip is allowed. */
+    fun abandon(atMs: Long): Boolean {
+        if (!skippable || kind != TaskKind.SIEGE || phase !is Phase.Active) return false
+        return end(Outcome.ABANDONED, atMs)
     }
 
     fun yieldTo(atMs: Long): Boolean = if (ended) false else end(Outcome.YIELDED, atMs)
@@ -105,6 +137,13 @@ class Takeover(
     fun activeRemainingMs(atMs: Long): Long? {
         val p = phase as? Phase.Active ?: return null
         return (taskMs - (atMs - p.beganAtMs)).coerceIn(0, taskMs)
+    }
+
+    /** How long the task actually ran (begin to end, or to [atMs] while running); 0 if never begun. */
+    fun activeMs(atMs: Long): Long {
+        val began = beganAtMs ?: return 0
+        val end = (phase as? Phase.Ended)?.atMs ?: atMs
+        return (end - began).coerceIn(0, taskMs)
     }
 
     private fun end(outcome: Outcome, atMs: Long): Boolean {

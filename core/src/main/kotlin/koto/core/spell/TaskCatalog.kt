@@ -71,11 +71,47 @@ object TaskCatalog {
         ),
     )
 
+    private fun siege(id: String, domain: Domain, normal: TaskVersion, floor: TaskVersion) =
+        SpellTask(id, TaskKind.SIEGE, domain, normal, floor)
+
+    private const val SIEGE_DETAIL = "Phone face down. Distractions are locked until the beat stops."
+
+    /** Long blocks. The takeover starts them; the app lock sustains them. */
+    val SIEGES: List<SpellTask> = listOf(
+        siege(
+            "focus25", Domain.FOCUS,
+            TaskVersion("Focus block. 25 minutes. Go.", SIEGE_DETAIL, seconds = 25 * 60, bpm = SIEGE_BPM),
+            TaskVersion("Focus block. 10 minutes. Go.", SIEGE_DETAIL, seconds = 10 * 60, bpm = SIEGE_BPM),
+        ),
+        siege(
+            "deep50", Domain.STUDY,
+            TaskVersion("Deep work. 50 minutes. Go.", SIEGE_DETAIL, seconds = 50 * 60, bpm = SIEGE_BPM),
+            TaskVersion("Deep work. 15 minutes. Go.", SIEGE_DETAIL, seconds = 15 * 60, bpm = SIEGE_BPM),
+        ),
+    )
+
+    /** The main screen's siege test: short enough to sit through. */
+    val TEST_SIEGE: SpellTask = siege(
+        "testsiege", Domain.FOCUS,
+        TaskVersion("Test siege. 3 minutes. Go.", SIEGE_DETAIL, seconds = 3 * 60, bpm = SIEGE_BPM),
+        TaskVersion("Test siege. 1 minute. Go.", SIEGE_DETAIL, seconds = 60, bpm = SIEGE_BPM),
+    )
+
+    /** What a reactive spell commands. */
+    val STOP_SCROLLING: SpellTask get() = byId("scroll")!!
+
     /** Picks a pulse at random, avoiding the [recentIds] when possible. */
     fun pick(random: Random, recentIds: Collection<String>): SpellTask {
         val fresh = PULSES.filter { it.id !in recentIds }
         return (fresh.ifEmpty { PULSES }).random(random)
     }
 
-    fun byId(id: String): SpellTask? = PULSES.firstOrNull { it.id == id }
+    /** Picks a siege no longer than [maxMinutes], or null if none fits. */
+    fun pickSiege(random: Random, maxMinutes: Int): SpellTask? =
+        SIEGES.filter { it.normal.seconds <= maxMinutes * 60 }.randomOrNull(random)
+
+    fun byId(id: String): SpellTask? = (PULSES + SIEGES + TEST_SIEGE).firstOrNull { it.id == id }
+
+    /** Background tempo at the start of a siege; it speeds up near the end. */
+    const val SIEGE_BPM = 12
 }

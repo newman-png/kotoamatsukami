@@ -100,6 +100,32 @@ class CueMixerTest {
     }
 
     @Test
+    fun `a quieter tempo gain scales the click`() {
+        fun peakAfterTempo(gain: Float): Float {
+            val m = CueMixer(sr)
+            m.setTempo(Tempos.constant(60), beatNow = true, gain = gain)
+            return run(m, 0.1).maxOf { abs(it) }
+        }
+        assertEquals(peakAfterTempo(1f) * 0.25f, peakAfterTempo(0.25f), 0.001f)
+    }
+
+    @Test
+    fun `muting keeps the grid but makes no sound`() {
+        val m = CueMixer(sr)
+        m.setTempo(Tempos.constant(120), beatNow = true)
+        run(m, 1.0)
+        m.muted = true
+        val silent = run(m, 2.0)
+        assertTrue(silent.drop(sr / 20).all { it == 0f })
+        m.muted = false
+        val before = m.recentClicks.size
+        val after = run(m, 1.0)
+        assertTrue(after.any { abs(it) > 0.1f })
+        assertTrue(m.recentClicks.size > before)
+        m.recentClicks.zipWithNext().forEach { (a, b) -> assertEquals(sr / 2L, b - a) }
+    }
+
+    @Test
     fun `output never clips beyond full scale`() {
         val m = CueMixer(sr)
         m.startCue(0, 200)

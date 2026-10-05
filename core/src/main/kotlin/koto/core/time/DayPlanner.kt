@@ -1,18 +1,27 @@
 package koto.core.time
 
+import koto.core.spell.Source
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
 import java.time.LocalDateTime
 import kotlin.random.Random
 
-/** A planned takeover moment. [taskId] pins a task (a returning one); null means pick at fire time. */
+/**
+ * A planned takeover moment. [taskId] pins a task (a returning one); null means pick at fire time.
+ * A [Source.TEST] slot ignores windows, never safety.
+ */
 @Serializable
 data class Slot(
     val atMs: Long,
     val deferrals: Int = 0,
     val taskId: String? = null,
-    /** A manual test from the main screen: ignores windows, never ignores safety. */
-    val test: Boolean = false,
+    val source: Source = Source.SCHEDULE,
+    /** Escalation level of a returning task (see [koto.core.spell.Escalation]). */
+    val level: Int = 0,
+    /** Pick a siege for this slot rather than a pulse. */
+    val siege: Boolean = false,
+    /** A returning task fires at the first distraction-app open after this, if before [atMs]. */
+    val ambushAfterMs: Long? = null,
 )
 
 /** The takeovers of one waking period. Persisted; never shown to the user. */

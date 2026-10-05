@@ -37,7 +37,7 @@ class CueMixer(val sampleRate: Int) {
     private val click = Synth.click(sampleRate)
     private val tone = Synth.releaseTone(sampleRate)
 
-    private class Voice(val data: FloatArray, val start: Long, val kind: Kind) {
+    private class Voice(val data: FloatArray, val start: Long, val kind: Kind, val gain: Float = 1f) {
         /** Absolute sample at which a fade-out ends (the voice is silent after it). */
         var stopAt = Long.MAX_VALUE
         val end: Long get() = minOf(start + data.size, stopAt)
@@ -49,6 +49,12 @@ class CueMixer(val sampleRate: Int) {
     private var tempo: Tempo? = null
     private var tempoStart = 0L
     private var nextClick = Long.MAX_VALUE
+    private var clickGain = 1f
+
+    /** While muted the beat keeps its place on the grid but makes no sound (a call during a siege). */
+    @get:Synchronized
+    @set:Synchronized
+    var muted = false
 
     /** Absolute index of the next sample [render] will produce. */
     var cursor = 0L
@@ -69,14 +75,19 @@ class CueMixer(val sampleRate: Int) {
         val buzzAt = cursor + ms(buzzDelayMs)
         voices += Voice(buzz, buzzAt, Kind.BUZZ)
         tempo = Tempos.constant(bpm)
+        clickGain = 1f
         tempoStart = buzzAt + buzz.size + ms(METRONOME_GAP_MS)
         nextClick = tempoStart
     }
 
-    /** Changes the metronome. With [beatNow] the first beat of the new tempo lands immediately. */
+    /**
+     * Changes the metronome. With [beatNow] the first beat of the new tempo lands immediately.
+     * [gain] scales the click: a siege's background tick is quieter than a takeover's beat.
+     */
     @Synchronized
-    fun setTempo(newTempo: Tempo, beatNow: Boolean) {
+    fun setTempo(newTempo: Tempo, beatNow: Boolean, gain: Float = 1f) {
         tempo = newTempo
+        clickGain = gain.coerceIn(0f, 1f)
         tempoStart = cursor
         nextClick = if (beatNow) cursor else cursor + interval(newTempo.bpmAt(0))
     }
@@ -111,7 +122,7 @@ class CueMixer(val sampleRate: Int) {
             val t = tempo ?: break
             if (nextClick >= blockEnd) break
             if (nextClick >= cursor) {
-                voices += Voice(click, nextClick, Kind.CLICK)
+                if (!muted) voices += Voice(click, nextClick, Kind.CLICK, clickGain)
                 clicks.addLast(nextClick)
                 if (clicks.size > 64) clicks.removeFirst()
             }
@@ -123,7 +134,7 @@ class CueMixer(val sampleRate: Int) {
             val from = maxOf(v.start, cursor)
             val to = minOf(v.end, blockEnd)
             for (s in from until to) {
-                var sample = v.data[(s - v.start).toInt()]
+                var sample = v.data[(s - v.start).toInt()] * v.gain
                 if (v.stopAt != Long.MAX_VALUE) sample *= ((v.stopAt - s).toFloat() / fadeLen).coerceIn(0f, 1f)
                 out[(s - cursor).toInt()] += sample
             }

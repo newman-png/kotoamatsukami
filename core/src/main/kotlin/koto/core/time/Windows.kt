@@ -69,6 +69,10 @@ data class Windows(
         return null
     }
 
+    /** True if every minute of [minutes] starting at [start] is allowed (a siege fits). */
+    fun allowsSpan(start: LocalDateTime, minutes: Int): Boolean =
+        (0 until minutes).all { allows(start.plusMinutes(it.toLong())) }
+
     /** Every whole minute in the waking period of [date] that [allows] a takeover, in order. */
     fun allowedMinutes(date: LocalDate): List<LocalDateTime> {
         val (start, end) = wakingPeriod(date)

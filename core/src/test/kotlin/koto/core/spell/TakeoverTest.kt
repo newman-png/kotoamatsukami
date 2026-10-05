@@ -79,6 +79,52 @@ class TakeoverTest {
     }
 
     @Test
+    fun `a siege calls under the pulse lease, then relocks to its own`() {
+        val siege = TaskCatalog.byId("focus25")!!
+        val t = Takeover("s", siege, siege.normal, skippable = true, shownAtMs = 0, leaseEndMs = lease)
+        // The 25 minute task does not shrink the call window to nothing.
+        assertEquals(lease - Takeover.END_MARGIN_MS, t.callDeadlineMs)
+        assertTrue(t.begin(5_000))
+        val siegeEnd = 5_000 + 26 * 60_000L
+        assertTrue(t.relock(siegeEnd))
+        assertNull(t.tick(lease + 1)) // the old pulse lease no longer ends it
+        assertEquals(Outcome.DONE, (t.tick(5_000 + 25 * 60_000L) as Takeover.Phase.Ended).outcome)
+        assertEquals(25 * 60_000L, t.activeMs(Long.MAX_VALUE))
+    }
+
+    @Test
+    fun `relock never applies to pulses or before begin`() {
+        val t = takeover()
+        assertFalse(t.relock(10_000_000))
+        val siege = TaskCatalog.byId("focus25")!!
+        val s = Takeover("s", siege, siege.normal, skippable = true, shownAtMs = 0, leaseEndMs = lease)
+        assertFalse(s.relock(10_000_000))
+    }
+
+    @Test
+    fun `a siege can be abandoned only when skippable and running`() {
+        val siege = TaskCatalog.byId("focus25")!!
+        val s = Takeover("s", siege, siege.normal, skippable = true, shownAtMs = 0, leaseEndMs = lease)
+        assertFalse(s.abandon(1_000))
+        s.begin(1_000)
+        assertTrue(s.abandon(61_000))
+        assertEquals(Outcome.ABANDONED, s.outcome)
+        assertEquals(60_000, s.activeMs(Long.MAX_VALUE))
+
+        val floor = Takeover("f", siege, siege.floor, skippable = false, shownAtMs = 0, leaseEndMs = lease)
+        floor.begin(1_000)
+        assertFalse(floor.abandon(2_000))
+        assertFalse(takeover().abandon(2_000)) // pulses are never "abandoned"
+    }
+
+    @Test
+    fun `skip is only offered before begin`() {
+        val t = takeover()
+        t.begin(2_000)
+        assertFalse(t.skip(3_000))
+    }
+
+    @Test
     fun `nothing happens after the end`() {
         val t = takeover()
         t.skip(2_000)
