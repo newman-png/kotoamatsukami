@@ -16,7 +16,7 @@ made them.
 | Foreground app detection | Accessibility service (primary), `UsageStatsManager` (fallback during sieges only, Layer 2) | Accessibility events are instant. UsageStats polling lags 1-5 s and costs battery. |
 | Driving detection | Google Play Services Activity Recognition (transition API), plus Android car mode | Android has no framework activity-recognition API. This is the single non-framework dependency. |
 | JSON / AI | `kotlinx.serialization` (Maven Central) and a thin `HttpURLConnection` client to the Anthropic Messages API, behind an interface | Keeps the AI layer swappable and dependency-light. |
-| Min / target SDK | minSdk 29 (Android 10), target/compile 36 | 29 is the oldest version with the emergency-dialer intent and the `ACTIVITY_RECOGNITION` permission. |
+| Min / target SDK | minSdk 29 (Android 10), target/compile 36 | 29 is the oldest version with the `ACTIVITY_RECOGNITION` runtime permission that driving detection needs. |
 
 ### 1.1 Why no Compose / AndroidX
 
@@ -85,7 +85,7 @@ Required permissions are listed in the README and checked by the in-app walkthro
 | Force stop / reboot | Force stop kills everything and cancels alarms, so nothing can show. Boot clears any lease. Reboot always releases. |
 | Safe mode | Crash and abnormal-termination ledger: 3 within 6 h puts the app in safe mode. Takeovers are disabled, alarms cancelled, and one silent notification is posted. Re-arming is manual. |
 | Escape hatch | (a) Volume keys **up, down, up, down, up, down, up, down** within 6 s, detected globally by the accessibility service and also inside the app's own screens. (b) **Two fingers held still on any Kotoamatsukami screen for 6 s.** Either one instantly stops audio, clears the lease, cancels every alarm, stops the service and persists `disabled`, which survives reboot. Re-arm only from the main screen. The detectors are pure code in `core` and are unit-tested. |
-| Calls | Before any takeover, and twice a second during one: audio mode (`RINGTONE` / `IN_CALL` / `IN_COMMUNICATION`, no permission needed), plus `TelecomManager.isInCall()` if phone-state permission is granted, plus audio-focus loss. Any of these yields the takeover: audio stops, the bounce is suspended, the screen closes, and the task returns later at no cost. Every takeover screen has an always-visible `emergency` word that releases the lease and opens the system emergency dialer. The dialer, in-call and emergency packages are never bounced. |
+| Calls | Before any takeover, and twice a second during one: audio mode (`RINGTONE` / `IN_CALL` / `IN_COMMUNICATION`, no permission needed), plus `TelecomManager.isInCall()` if phone-state permission is granted, plus audio-focus loss. Any of these yields the takeover: audio stops, the bounce is suspended, the screen closes, and the task returns later at no cost. Every takeover screen has an always-visible `emergency` word that releases the lease and opens the dialer. On a locked phone it asks for the system emergency dialer; Android has no public API for this, so if the phone refuses, closing the takeover leaves the lock screen's own emergency button in front. The dialer, in-call and emergency packages are never bounced. |
 | Driving / protected windows | Takeovers are only scheduled inside allowed windows, never inside protected blocks or quiet hours. At fire time: if Activity Recognition reports `IN_VEHICLE`, or car mode is on, the takeover is deferred in 10-minute steps and dropped if it leaves the window. |
 | Local-only data | No network code at all until Layer 3. Then only the compact state document is sent (section 8). No analytics, no cloud backup (`allowBackup=false`). |
 
@@ -124,7 +124,8 @@ Universal last resorts (documented in the README): Android Safe Mode (long-press
 4. **Detecting driving without Google Play Services** isn't possible. On a phone without Play Services, deferral falls back to car mode and protected windows only.
 5. **Sideloaded accessibility services on Android 13+** are blocked until the user taps *App info → ⋮ → Allow restricted settings*. This is a one-time manual step and the walkthrough points to it.
 6. **OEM battery killers** (Xiaomi, Samsung, Huawei, OnePlus) can kill the service despite the exemption. The walkthrough links the OEM's auto-start / "never sleeping apps" page where one exists. The README links dontkillmyapp.com.
-7. **Background activity start rules change between Android versions.** If a launch is blocked anyway, the user still gets the heads-up full-screen-intent notification. This is the honest worst case.
+7. **Opening the emergency dialer over the lock screen** has no public API (`TelecomManager.createLaunchEmergencyDialerIntent` is system-only). The takeover requests the system emergency dialer by its intent action, which most phones answer. If a phone refuses, the takeover closes and the lock screen's own emergency button is in front.
+8. **Background activity start rules change between Android versions.** If a launch is blocked anyway, the user still gets the heads-up full-screen-intent notification. This is the honest worst case.
 
 ## 11. Build, CI, and install
 

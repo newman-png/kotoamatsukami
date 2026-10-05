@@ -25,7 +25,7 @@ If those somehow fail, any of these also works:
 Hard guarantees, enforced in code:
 
 - **Time limits.** No takeover holds the screen longer than its limit (default 4 min). The absolute ceilings are 10 min for a takeover and 180 min for a siege, and no config can exceed them.
-- **Calls.** An incoming or active call (including VoIP) makes the takeover yield at once: the sound stops and the screen closes. Every takeover shows an `emergency` word that opens the dialer. When the phone is locked it opens the emergency dialer.
+- **Calls.** An incoming or active call (including VoIP) makes the takeover yield at once: the sound stops and the screen closes. Every takeover shows an `emergency` word that opens the dialer. When the phone is locked it opens the emergency dialer, or, on phones that don't allow that, closes the takeover so the lock screen's own emergency button is right there.
 - **Crashes.** A crash releases the screen. A separate watchdog process kills the app if it hangs while holding the screen. Three failures within 6 hours put the app in **safe mode**: takeovers stop until you re-arm.
 - **Driving.** No takeover while driving (activity recognition or car mode), in a protected block, or in quiet hours.
 
@@ -116,7 +116,7 @@ Do these in order. Stop and report anything that doesn't behave exactly as descr
 **Safety**
 
 9. Have someone call you during a takeover. The sound should stop and the screen close immediately, and the call should ring normally.
-10. Run a test with the phone locked and the screen off. The screen should turn on and show the takeover over the lock screen. Tap `emergency`: the emergency dialer should open.
+10. Run a test with the phone locked and the screen off. The screen should turn on and show the takeover over the lock screen. Tap `emergency`: the emergency dialer should open, or the takeover should close and leave the lock screen (with its emergency button) in front.
 11. Set the phone to silent, then vibrate, and run a test in each mode. The cue should still sound (it uses the alarm channel).
 12. Reboot during a takeover. After the reboot nothing should be held. The app should stay armed.
 13. Put a protected block around the current time (`protect daily HH:MM-HH:MM test`), save, and wait: no random takeover should come during it. `test spell` deliberately ignores windows, so use real waiting time for this check.

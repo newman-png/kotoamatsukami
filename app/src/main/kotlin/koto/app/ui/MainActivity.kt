@@ -3,6 +3,7 @@ package koto.app.ui
 import android.content.Intent
 import koto.app.data.Store
 import koto.app.safety.Safety
+import koto.app.spell.KotoService
 import koto.app.spell.SpellScheduler
 import koto.core.art.EyeForm
 
@@ -15,6 +16,11 @@ class MainActivity : KotoActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (Safety.isArmed(this)) {
+            // Self-heal in case an aggressive OEM killed the service or dropped the alarm.
+            KotoService.start(this)
+            SpellScheduler.tick(this)
+        }
         render()
     }
 

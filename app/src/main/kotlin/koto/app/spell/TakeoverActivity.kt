@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import android.telecom.TelecomManager
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
@@ -102,14 +101,14 @@ class TakeoverActivity : KotoActivity(), Spell.Listener {
 
         override fun emergency() {
             Spell.yieldTo("emergency")
-            // Over the lock screen only the emergency dialer can call; unlocked, the normal dialer can call anyone.
             val locked = getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
-            val dial = if (locked) {
-                getSystemService(TelecomManager::class.java)?.createLaunchEmergencyDialerIntent(null)
+            if (locked) {
+                // No public API opens the emergency dialer. Most phones answer this action; if not,
+                // closing this screen reveals the lock screen and its own emergency call button.
+                runCatching { startActivity(Intent(EMERGENCY_DIAL).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
             } else {
-                null
-            } ?: Intent(Intent.ACTION_DIAL)
-            runCatching { startActivity(dial.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                runCatching { startActivity(Intent(Intent.ACTION_DIAL).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            }
             finish()
         }
     }
@@ -130,6 +129,8 @@ class TakeoverActivity : KotoActivity(), Spell.Listener {
     }
 
     companion object {
+        private const val EMERGENCY_DIAL = "com.android.phone.EmergencyDialer.DIAL"
+
         fun intent(context: Context): Intent = Intent(context, TakeoverActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
     }
