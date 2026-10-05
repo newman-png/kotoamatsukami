@@ -1,5 +1,6 @@
 package koto.app.spell
 
+import android.annotation.SuppressLint
 import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
@@ -68,6 +69,8 @@ class TakeoverActivity : KotoActivity(), Spell.Listener {
         if (hasFocus) hideSystemBars()
     }
 
+    // Android 10-12 only: from 13 the OnBackInvokedCallback registered in onCreate handles back.
+    @SuppressLint("GestureBackNavigation")
     @Deprecated("Back is consumed while the spell holds (API < 33).")
     override fun onBackPressed() {
         if (Spell.takeover?.ended != false) {

@@ -55,12 +55,16 @@ object Driving {
     }
 
     fun unregister(context: Context) {
+        Store(context).vehicleSinceMs = 0
+        // Without the permission nothing was registered (or the system already dropped it).
+        if (context.checkSelfPermission(Manifest.permission.ACTIVITY_RECOGNITION) != PackageManager.PERMISSION_GRANTED) {
+            return
+        }
         try {
             ActivityRecognition.getClient(context).removeActivityTransitionUpdates(pendingIntent(context))
         } catch (e: RuntimeException) {
             Log.w(TAG, "unregister failed", e)
         }
-        Store(context).vehicleSinceMs = 0
     }
 
     private fun pendingIntent(context: Context): PendingIntent {

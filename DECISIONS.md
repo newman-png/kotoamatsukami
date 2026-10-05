@@ -16,7 +16,7 @@ made them.
 | Foreground app detection | Accessibility service (primary), `UsageStatsManager` (fallback during sieges only, Layer 2) | Accessibility events are instant. UsageStats polling lags 1-5 s and costs battery. |
 | Driving detection | Google Play Services Activity Recognition (transition API), plus Android car mode | Android has no framework activity-recognition API. This is the single non-framework dependency. |
 | JSON / AI | `kotlinx.serialization` (Maven Central) and a thin `HttpURLConnection` client to the Anthropic Messages API, behind an interface | Keeps the AI layer swappable and dependency-light. |
-| Min / target SDK | minSdk 29 (Android 10), target/compile 36 | 29 is the oldest version with the `ACTIVITY_RECOGNITION` runtime permission that driving detection needs. |
+| Min / target SDK | minSdk 29 (Android 10), target/compile 36 | 29 is the oldest version with the `ACTIVITY_RECOGNITION` runtime permission that driving detection needs. API 37 exists, but targeting it changes platform behaviour that has to be re-tested on the phone first. |
 
 ### 1.1 Why no Compose / AndroidX
 
