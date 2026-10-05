@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Kotoamatsukami</string>
+    <string name="guard_label">Kotoamatsukami guard</string>
+    <string name="guard_description">Sees which app is in front, so a takeover can stay on screen, distraction apps can be blocked during a siege, and the volume-key escape sequence works everywhere. Reads no window content. Sends nothing anywhere.</string>
+</resources>
