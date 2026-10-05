@@ -56,8 +56,22 @@ class CueEngine(context: Context, private val onFocusLost: () -> Unit) {
         thread = Thread({ pump(track) }, "koto-cue").apply { start() }
     }
 
-    /** Task begins: the first beat of the task tempo lands now. */
-    fun setTempo(bpm: Int) = mixer.setTempo(Tempos.constant(bpm), beatNow = true)
+    /** A pulse begins: the first beat of the task tempo lands now. */
+    fun beginPulse(bpm: Int) = mixer.setTempo(Tempos.constant(bpm), beatNow = true)
+
+    /**
+     * A siege begins: a quiet, very slow tick that speeds up over the last minutes. Audio focus is
+     * given back so music can play underneath; calls are still caught by polling.
+     */
+    fun beginSiege(totalMs: Long) {
+        mixer.setTempo(Tempos.siege(totalMs), beatNow = true, gain = SIEGE_GAIN)
+        main.post { abandonFocus() }
+    }
+
+    /** Silences the beat without losing its place (a call during a siege). */
+    fun mute(muted: Boolean) {
+        mixer.muted = muted
+    }
 
     /** The beat stops dead. With [withTone], silence then the soft low tone. */
     fun release(withTone: Boolean) {
@@ -164,10 +178,15 @@ class CueEngine(context: Context, private val onFocusLost: () -> Unit) {
         }
     }
 
-    private fun cleanup() {
+    private fun abandonFocus() {
         val am = audio ?: return
         focus?.let { am.abandonAudioFocusRequest(it) }
         focus = null
+    }
+
+    private fun cleanup() {
+        val am = audio ?: return
+        abandonFocus()
         val restore = restoreVolume
         // Only restore if the user hasn't changed the volume meanwhile.
         if (restore != null && am.getStreamVolume(AudioManager.STREAM_ALARM) == raisedTo) {
@@ -183,5 +202,6 @@ class CueEngine(context: Context, private val onFocusLost: () -> Unit) {
         const val BLOCK = 960 // 20 ms
         const val TAIL_BLOCKS = 8 // let the end of the tone play out
         const val VOLUME_FLOOR = 0.4
+        const val SIEGE_GAIN = 0.35f
     }
 }

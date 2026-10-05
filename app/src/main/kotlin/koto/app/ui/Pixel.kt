@@ -22,6 +22,9 @@ object Pixel {
     /** Ink → colour while a spell is active (CLEAR lets the red flood through). */
     val SPELL_INK = intArrayOf(0, BLACK, RED_BRIGHT, RED_DARK, WHITE)
 
+    /** Ink → colour during a running siege: an ember on black, present but not shouting. */
+    val EMBER_INK = intArrayOf(0, BLACK, 0xFF9E0E22.toInt(), 0xFF4A0610.toInt(), 0xFF3A3835.toInt())
+
     /** Ink → colour on idle screens: the eye is dark and muted. */
     val IDLE_INK = intArrayOf(0, BLACK, 0xFF3A0A10.toInt(), 0xFF22070B.toInt(), 0xFF2C2A27.toInt())
 

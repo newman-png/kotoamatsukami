@@ -8,19 +8,26 @@ import android.provider.Settings
 import android.telecom.TelecomManager
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
+import koto.app.data.SpellLog
+import koto.app.data.Store
 import koto.app.safety.Safety
 import koto.app.spell.Spell
+import koto.app.spell.SpellScheduler
 import koto.core.safety.VolumeEscapeDetector
 import koto.core.safety.VolumeKey
 
 /**
  * Accessibility guard. Sees only which app comes to the front (no window content) and volume
- * key presses (never consumed). Used to keep a live takeover on screen and to hear the escape
- * sequence from anywhere. Being bound by the system is also what lets the app open the takeover
- * from the background on modern Android.
+ * key presses (never consumed). Used to keep a live takeover on screen, to send distraction apps
+ * back home during a siege, to count distraction-app opens for reactive spells, and to hear the
+ * escape sequence from anywhere. Being bound by the system is also what lets the app open the
+ * takeover from the background on modern Android.
  */
 class GuardService : AccessibilityService() {
     private val escape = VolumeEscapeDetector()
+
+    /** The last real app in front, ignoring system UI, keyboards and this app. */
+    private var lastApp: String? = null
 
     override fun onServiceConnected() {
         running = true
@@ -28,9 +35,20 @@ class GuardService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
-        if (!Spell.isHolding()) return
         val pkg = event.packageName?.toString() ?: return
-        Spell.onForeground(this, pkg, SafePackages.isSafe(this, pkg))
+        if (Spell.isHolding()) {
+            Spell.onForeground(this, pkg, SafePackages.isSafe(this, pkg)) {
+                performGlobalAction(GLOBAL_ACTION_HOME)
+            }
+            return
+        }
+        if (SafePackages.isTransient(this, pkg) || pkg == lastApp) return
+        lastApp = pkg
+        // An "open" is a distraction app coming to the front from a different app.
+        val distractions = Store(this).config()?.distractions ?: return
+        if (pkg !in distractions || !Safety.isArmed(this)) return
+        SpellLog.open(this, pkg, System.currentTimeMillis())
+        SpellScheduler.onDistractionOpen(this)
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
@@ -88,6 +106,13 @@ object SafePackages {
         "com.android.packageinstaller",
         "com.google.android.packageinstaller",
     )
+
+    /** Windows that sit on top of an app without leaving it: shade, keyboard, system dialogs, this app. */
+    fun isTransient(context: Context, pkg: String): Boolean {
+        if (pkg == "android" || pkg == "com.android.systemui" || pkg == context.packageName) return true
+        val ime = Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+        return ime != null && pkg == ime.substringBefore('/')
+    }
 
     fun isSafe(context: Context, pkg: String): Boolean {
         if (pkg in FIXED || pkg == context.packageName) return true

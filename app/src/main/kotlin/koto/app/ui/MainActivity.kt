@@ -4,6 +4,7 @@ import android.content.Intent
 import koto.app.data.Store
 import koto.app.safety.Safety
 import koto.app.spell.KotoService
+import koto.app.spell.Spell
 import koto.app.spell.SpellScheduler
 import koto.core.art.EyeForm
 
@@ -41,6 +42,7 @@ class MainActivity : KotoActivity() {
             store.config() == null -> "not set up."
             !store.consented -> "not armed."
             files.disabled -> "off."
+            Spell.inSiege() -> "siege."
             else -> "armed."
         }
         term.line(status, Pixel.WHITE, term.large)
@@ -64,13 +66,20 @@ class MainActivity : KotoActivity() {
                     }
                 }
             }
+        } else if (Spell.inSiege()) {
+            term.command("return to the siege") { Spell.show(this) }
         } else {
-            term.command("test spell") {
-                SpellScheduler.scheduleTest(this)
-                note = "A takeover comes in ${SpellScheduler.TEST_DELAY_MS / 1000} seconds. Leave the app if you like."
-                render()
-            }
+            term.command("test spell") { test(siege = false) }
+            term.command("test siege") { test(siege = true) }
         }
+        term.command("log", Pixel.GREY, term.small) { startActivity(Intent(this, LogActivity::class.java)) }
         term.show()
+    }
+
+    private fun test(siege: Boolean) {
+        SpellScheduler.scheduleTest(this, siege)
+        val what = if (siege) "A test siege" else "A takeover"
+        note = "$what comes in ${SpellScheduler.TEST_DELAY_MS / 1000} seconds. Leave the app if you like."
+        render()
     }
 }

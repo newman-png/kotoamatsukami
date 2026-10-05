@@ -4,7 +4,7 @@ A genjutsu for your goals. Surprise takeovers, hidden AI plan, zero decisions. A
 
 Single user, sideloaded, no accounts, no backend. Architecture and every design call: [DECISIONS.md](DECISIONS.md).
 
-**Built so far: Layer 0 (safety) and Layer 1 (takeover and cue).** Takeovers happen at random moments inside your windows and come from a fixed list of easy 10-20 second tasks. Nothing is logged yet and there is no AI yet.
+**Built so far: Layers 0-2.** Safety (0), the takeover and its cue (1), and logging, feedback, skip escalation, sieges with app blocking, and reactive spells (2). Tasks still come from a fixed list; the AI planner is Layer 3.
 
 ---
 
@@ -76,13 +76,18 @@ Open **Kotoamatsukami**.
    limit pulse 4
    limit siege 120
    spells 6
+   sieges 1
+   distract instagram threads tiktok youtube reddit x facebook snapchat
+   reactive 3 60
    ```
 
    - `waking`: hours when takeovers may happen. They may cross midnight.
    - `quiet`: never take over during these hours, every day.
    - `protect <days> <from-to> <label>`: never take over during these blocks. Days are `mon`…`sun`, ranges like `mon-fri`, lists like `sat,sun`, or `daily` / `weekdays` / `weekends`.
    - `limit`: hard lock limits in minutes. Pulse is 1-10, siege is 1-180.
-   - `spells`: takeovers per day (Layer 1 only; the AI planner takes this over in Layer 3).
+   - `spells`: takeovers per day. `sieges`: how many of them are sieges (long locked blocks). The AI planner takes both over in Layer 3.
+   - `distract`: apps that are locked during a siege and watched for scrolling. Use names (`instagram`, `tiktok`, `youtube`, `reddit`, `x`, `facebook`, `snapchat`, `threads`, `pinterest`, `netflix`, `twitch`, `tumblr`, `9gag`, `discord`) or package names (`com.example.app`). Without this rule the list above is used.
+   - `reactive 3 60`: the 3rd open of those apps within 60 minutes triggers a takeover on the spot. `reactive off` turns it off.
 
    Invalid rules are listed with line numbers, and nothing is saved until every rule is valid.
 3. **`arm`.** This leads to the consent screen, which explains what will happen and how to get out.
@@ -91,9 +96,35 @@ Once armed there is no "off" button. The escape hatch is the way off. The main s
 
 ---
 
-## What to test now (Layers 0 + 1)
+## What to test now (Layer 2)
 
-Do these in order. Stop and report anything that doesn't behave exactly as described.
+Install the new build over the old one (or uninstall first if Android refuses: see [Option A](#option-a-download-the-apk-from-github-actions)). Your saved windows stay as they were, so **add `sieges 1` in `windows`** to get random sieges. Without `distract` and `reactive` lines the defaults above apply.
+
+**Feedback and the log**
+
+1. `test spell` → `> begin` → let it finish. After the beat stops, the words `easy  fine  too much` appear for a few seconds. Tap one. Open `log` on the main screen: the takeover is there with its latency (seconds from the cue to `begin`) and your answer.
+
+**Sieges and app blocking**
+
+2. `test siege`, wait 20 s, then `> begin`. The red drains to black, a dim eye turns slowly, a 3-minute countdown runs, and a quiet tick plays. It speeds up as the end gets close.
+3. During the siege, open Instagram (or any `distract` app). You should be sent to the home screen and the siege screen should come back saying "Not now.". Any other app should open normally.
+4. Leave the siege screen with Home or back. The main screen should say `siege.` and offer `return to the siege`.
+5. Let it finish: the tick stops dead, then silence, then the low tone, then the feedback words. Run another and tap `stop`: it should end with "Stopped." and no tone (a real siege would say "Stopped. Marked.").
+6. Get a call during a running siege. The tick should go quiet for the call and come back afterwards, and the siege should keep running.
+
+**Reactive spells**
+
+7. Open a `distract` app, go home, open it again, go home, and open it a third time, all within an hour. The third open should bring an immediate "Stop scrolling." takeover. After that, nothing reactive for 20 minutes.
+
+**Skip escalation** (needs real scheduled takeovers; tests never escalate)
+
+8. When a random takeover comes, tap `skip`. It should say "Later. Marked.".
+9. Wait at least 20 minutes, then open a `distract` app. The same task should come back right then (or by itself 45-120 minutes after the skip). `skip` it again.
+10. The next time it comes back it should be the smaller floor version **with no `skip`**. Its time limit and the escape hatch still apply.
+
+Report: does the siege lock hold; is the tick bearable for a long block; did the reactive spell catch you at the right moment; is anything in the escalation unfair.
+
+### Layers 0 + 1 checks (passed on the phone; rerun after big updates)
 
 **Escape hatch first**
 
@@ -109,7 +140,7 @@ Do these in order. Stop and report anything that doesn't behave exactly as descr
    - a steady metronome, and
    - the screen dissolving to red with the eye opening from a single line and turning slowly, an opening word typed out, and the command.
 5. Tap `> begin`. The beat jumps to the task's tempo and a countdown appears. Let it run out, or tap `> done`. The beat should **stop dead**, then silence, then one soft low tone, and the red should dissolve back to black.
-6. Run another test and tap `skip`. You should hear no tone, and the screen should show "Later.".
+6. Run another test and tap `skip`. You should hear no tone, and the screen should show "Later." (tests never cost a mark).
 7. Run another test and press Home during the takeover. With the guard on, the takeover should come back within a second or two.
 8. Run another test and ignore it. After 4 minutes at most (your `limit pulse`) it must release by itself, silently.
 
@@ -147,7 +178,7 @@ core/   pure Kotlin. Safety rules, scheduling, takeover state machine, eye sprit
 app/    Android framework code (no AndroidX). Services, receivers, screens, audio output.
 ```
 
-- `./gradlew :core:test` runs the unit tests: leases and limits, escape detectors, safe-mode policy, window parsing, random scheduling, fire/defer rules, the takeover state machine, metronome timing and visual-safety bounds.
+- `./gradlew :core:test` runs the unit tests: leases and limits, escape detectors, safe-mode policy, window parsing, random scheduling, fire/defer rules, the takeover state machine (pulses and sieges), escalation, reactive detection, metronome timing and visual-safety bounds.
 - `./gradlew :app:assembleDebug` builds the APK, and `./gradlew :app:lintDebug` runs lint.
 
 The pixel font is Departure Mono, © Helena Zhang, under the SIL Open Font License; see `app/src/main/assets/fonts/DepartureMono-OFL.txt`.

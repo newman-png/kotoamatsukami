@@ -13,6 +13,7 @@ import android.view.WindowManager
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import koto.app.ui.KotoActivity
+import koto.core.spell.Feedback
 import koto.core.spell.Outcome
 import koto.core.spell.Takeover
 
@@ -22,6 +23,9 @@ import koto.core.spell.Takeover
  */
 class TakeoverActivity : KotoActivity(), Spell.Listener {
     private var view: TakeoverView? = null
+
+    /** The takeover this screen's view belongs to. One view per takeover, never reused. */
+    private var boundId: String? = null
     /** An OnBackInvokedCallback on API 33+; typed loosely so older Android never loads the class. */
     private var backCallback: Any? = null
 
@@ -34,12 +38,9 @@ class TakeoverActivity : KotoActivity(), Spell.Listener {
         setShowWhenLocked(true)
         setTurnScreenOn(true)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        val v = TakeoverView(this, actions)
-        view = v
-        setContentView(v)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            // Back does nothing while the spell holds; the escape hatch and skip are the ways out.
-            val cb = OnBackInvokedCallback { if (Spell.takeover?.ended != false) finish() }
+            // Back does nothing while the spell holds the screen; the escape hatch and skip are the ways out.
+            val cb = OnBackInvokedCallback { if (backAllowed()) finish() }
             onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, cb)
             backCallback = cb
         }
@@ -55,6 +56,12 @@ class TakeoverActivity : KotoActivity(), Spell.Listener {
     override fun onPause() {
         Spell.removeListener(this)
         super.onPause()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Out of sight and over: never leave a finished takeover's screen behind for the next one.
+        if (Spell.takeover?.ended != false) finish()
     }
 
     override fun onDestroy() {
@@ -73,7 +80,7 @@ class TakeoverActivity : KotoActivity(), Spell.Listener {
     @SuppressLint("GestureBackNavigation")
     @Deprecated("Back is consumed while the spell holds (API < 33).")
     override fun onBackPressed() {
-        if (Spell.takeover?.ended != false) {
+        if (backAllowed()) {
             @Suppress("DEPRECATION")
             super.onBackPressed()
         }
@@ -85,14 +92,26 @@ class TakeoverActivity : KotoActivity(), Spell.Listener {
             finish()
             return
         }
+        if (t.id != boundId) {
+            // A takeover that ended while this screen was away has nothing left to show.
+            if (t.ended) {
+                finish()
+                return
+            }
+            boundId = t.id
+            view = TakeoverView(this, actions).also { setContentView(it) }
+        }
         val phase = t.phase
         // A call or the escape hatch: get out of the way at once, no animation.
         if (phase is Takeover.Phase.Ended && (phase.outcome == Outcome.YIELDED || phase.outcome == Outcome.ESCAPED)) {
             finish()
             return
         }
-        view?.bind(t, Spell.variation)
+        view?.bind(t, Spell.variation, Spell.feedback, Spell.lastBlockedAt, Spell.marked)
     }
+
+    /** Nothing holds the screen: no takeover, an ended one, or a running siege (only apps are held). */
+    private fun backAllowed(): Boolean = Spell.takeover?.ended != false || Spell.inSiege()
 
     override fun onEscaped() = finish()
 
@@ -100,6 +119,8 @@ class TakeoverActivity : KotoActivity(), Spell.Listener {
         override fun begin() = Spell.begin()
         override fun done() = Spell.done()
         override fun skip() = Spell.skip()
+        override fun stop() = Spell.stop()
+        override fun feedback(value: Feedback) = Spell.giveFeedback(value)
         override fun released() = finish()
 
         override fun emergency() {

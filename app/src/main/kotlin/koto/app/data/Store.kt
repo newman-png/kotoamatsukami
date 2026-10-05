@@ -18,10 +18,16 @@ class Store(context: Context) {
         get() = prefs.getString(KEY_CONFIG, null)
         set(value) = prefs.edit().putString(KEY_CONFIG, value).apply()
 
-    /** The parsed config, or null if none was saved (a saved config is always valid). */
+    /** The parsed config, or null if none was saved (a saved config is always valid). Cached per text. */
     fun config(): SpellConfig? {
         val text = configText ?: return null
-        return (SpellConfigParser.parse(text) as? ConfigParse.Ok)?.config
+        synchronized(Store) {
+            if (text != cachedText) {
+                cachedConfig = (SpellConfigParser.parse(text) as? ConfigParse.Ok)?.config
+                cachedText = text
+            }
+            return cachedConfig
+        }
     }
 
     var consented: Boolean
@@ -50,6 +56,9 @@ class Store(context: Context) {
         set(value) = prefs.edit().putLong(KEY_VEHICLE, value).apply()
 
     private companion object {
+        var cachedText: String? = null
+        var cachedConfig: SpellConfig? = null
+
         const val KEY_CONFIG = "config_text"
         const val KEY_CONSENT = "consented"
         const val KEY_PLAN = "day_plan"

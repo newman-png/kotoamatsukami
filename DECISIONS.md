@@ -13,7 +13,7 @@ made them.
 | UI | Android framework Views and a few custom `Canvas` views. **No Jetpack Compose, no AndroidX.** | See 1.1. |
 | Persistence | Framework SQLite (`SQLiteOpenHelper`) for logs and plan, small atomic files for safety-critical state | "Room or similar". Safety state must be readable from a second process (watchdog), and Room gives nothing there. |
 | Background work | `AlarmManager` exact alarms for takeovers; `JobScheduler` for plan generation (Layer 3) | WorkManager is a wrapper over JobScheduler on API 23+. Same guarantees (persisted across reboot, network constraint) without the dependency. |
-| Foreground app detection | Accessibility service (primary), `UsageStatsManager` (fallback during sieges only, Layer 2) | Accessibility events are instant. UsageStats polling lags 1-5 s and costs battery. |
+| Foreground app detection | Accessibility service only | Accessibility events are instant. A `UsageStatsManager` fallback was planned for sieges and dropped in Layer 2: without the guard, Android 14+ won't let the app open the siege screen over another app, so the fallback could see a distraction app but not block it. |
 | Driving detection | Google Play Services Activity Recognition (transition API), plus Android car mode | Android has no framework activity-recognition API. This is the single non-framework dependency. |
 | JSON / AI | `kotlinx.serialization` (Maven Central) and a thin `HttpURLConnection` client to the Anthropic Messages API, behind an interface | Keeps the AI layer swappable and dependency-light. |
 | Min / target SDK | minSdk 29 (Android 10), target/compile 36 | 29 is the oldest version with the `ACTIVITY_RECOGNITION` runtime permission that driving detection needs. API 37 exists, but targeting it changes platform behaviour that has to be re-tested on the phone first. |
@@ -109,12 +109,21 @@ Universal last resorts (documented in the README): Android Safe Mode (long-press
 |---|---|
 | Stack | Kotlin + framework Views (section 1). |
 | Takeover surface | Activity, launched by full-screen intent or direct start with accessibility-service exemption (section 3). |
-| UsageStats vs Accessibility | Accessibility primary; UsageStats fallback during sieges only. |
+| UsageStats vs Accessibility | Accessibility only (see section 1). |
 | Camera rep counting / notebook photo | **Not in v1.** A notebook photo is cheap (Layer 5 candidate). Rep counting needs ML Kit pose detection, which is heavy and fragile. Deferred, listed under suggestions. |
 | "Opening line" variation | Interpreted as both the eyelid-line opening animation and the first text line of a takeover. Both vary; the cue never does. |
 | Response latency definition | Seconds from takeover start (first frame shown) to the `begin` tap. For tasks without a begin step, to the first touch. |
 | Layer 1 configuration | Layer 1 needs waking hours and protected blocks before the setup flow exists. A minimal terminal-style `windows` screen is built in Layer 1, and Layer 3's setup flow reuses it. The format is one line per rule: `waking 07:30-23:00`, `protect mon-fri 09:00-13:00 classes`. |
 | Test trigger | Layer 1 includes a `test spell` command on the main screen so the mechanics can be checked without waiting for a random takeover. |
+| "Worse moment" for a first skip (L2) | The task returns at a random time 45-120 min later, or earlier as an ambush: the first time a distraction app is opened after 20 min. Being caught in the act is the worse moment. |
+| Skip cost (L2) | A mark in the local log, shown by the weekly report (Layer 4). On screen: "Later. Marked." Nothing more: no streak loss, no shaming. Unanswered or interrupted takeovers never cost a mark. |
+| Escalation ladder (L2) | Level 0 normal → skip or no answer → level 1 normal, still skippable → skip or no answer → level 2 floor, no skip. Nothing escalates past the floor; an unanswered floor is dropped. A call returns the task 10 min later at the same level. Tests and reactive spells never return. Pure code in `core` (`Escalation`), unit-tested. |
+| Sieges before the planner (L2) | `sieges N` in the windows config marks N of the day's takeovers as sieges. Two generic sieges (focus 25 min, deep work 50 min; floors 10 and 15) until Layer 3 generates real ones. A siege only fires if it fits the window and the siege limit; otherwise that slot gets a pulse. |
+| Siege mechanics (L2) | A siege calls like a pulse under a pulse lease. On `begin` it takes a siege lease (timer + 1 min) and the screen drains to black with a dim eye. Only distraction apps are held: opening one sends it home and shows the siege screen ("Not now."). The tick is quiet and slow and speeds up over the last 3 minutes; audio focus is released so music can play. A call mutes the tick instead of ending the siege, because the lock never touches calls. `stop` ends it early (counts like a skip); `emergency` ends it at no cost. |
+| Reactive spells (L2) | Counts opens of distraction apps (an app coming to the front from a different app; system UI, keyboard and this app don't count), all apps together. The third open within 60 minutes fires "Stop scrolling." immediately, then 20 min of quiet. Configurable with `distract` and `reactive` rules. Same safety gate as every takeover. |
+| Feedback (L2) | After every finished task the words `easy  fine  too much` stay for 6 s. One tap, or nothing. |
+| Spacing (L2) | At least 3 minutes between the end of one takeover and the start of the next (tests excepted). |
+| Log screen (L2) | A plain `log` screen lists recent takeovers (results only, never the plan) so Layer 2 can be checked on the phone. The weekly report (Layer 4) replaces it. |
 
 ## 10. Brief items that are infeasible or need adjustment on Android
 
@@ -137,9 +146,9 @@ Universal last resorts (documented in the README): Android Safe Mode (long-press
 
 | Layer | Content | Status |
 |---|---|---|
-| 0 | Lease + hard limits, crash handler, watchdog, safe mode, escape hatch, call yield, driving/protected deferral | in progress |
-| 1 | Service, random scheduling, takeover screen, eye sprite, red flood, cue, release cue, done, hardcoded tasks, windows screen, consent, permissions walkthrough | planned |
-| 2 | Logging, latency, feedback, skip/escalation, sieges + blocking, reactive spells | planned |
+| 0 | Lease + hard limits, crash handler, watchdog, safe mode, escape hatch, call yield, driving/protected deferral | done, tested on the phone |
+| 1 | Service, random scheduling, takeover screen, eye sprite, red flood, cue, release cue, done, hardcoded tasks, windows screen, consent, permissions walkthrough | done, tested on the phone |
+| 2 | Logging, latency, feedback, skip/escalation, sieges + blocking, reactive spells | built, waiting for the phone test |
 | 3 | Setup flow, planner pipeline, validators, critic, compact state, nightly and weekly jobs, deload | planned |
 | 4 | Sharingan stages, weekly report | planned |
 | 5 | Wake/night/mercy spells, variation, health data, optional photo verification | planned |
