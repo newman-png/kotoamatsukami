@@ -1,0 +1,8 @@
+STATE
+{{state}}
+YESTERDAY
+{{yesterday}}
+TOMORROW: {{date}}
+SLOTS
+{{slots}}
+Write the entries for these slots.

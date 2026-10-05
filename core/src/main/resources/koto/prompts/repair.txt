@@ -1,0 +1,2 @@
+That answer was rejected. Fix exactly these problems, change nothing else that was fine, and answer with the whole corrected JSON object:
+{{errors}}

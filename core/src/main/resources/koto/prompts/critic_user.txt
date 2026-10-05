@@ -1,0 +1,7 @@
+THE USER
+{{profile}}
+THE DRAFT: what the goals mean
+{{intent}}
+THE DRAFT: minutes per day, week by week, as code computed them from the draft
+{{weeks}}
+Review it.

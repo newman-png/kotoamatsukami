@@ -31,4 +31,6 @@ data class SpellTask(
     val floor: TaskVersion,
     /** Shown after completion for micro-learning pulses, e.g. the translation. */
     val reveal: String = "",
+    /** The goal topic this task works on (e.g. "linear algebra"), for the planner's statistics. */
+    val topic: String = "",
 )

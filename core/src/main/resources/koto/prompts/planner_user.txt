@@ -1,0 +1,10 @@
+STATE
+{{state}}
+FACTS (from code; not negotiable)
+plan starts: {{start}}. weeks planned: {{firstWeek}} to {{lastWeek}}.
+deadlines: {{deadlines}}
+free time for scheduled work, average minutes per day: {{capacity}}
+starting level, minutes per day: {{rampFrom}}
+targets, minutes per day: {{targets}}
+{{replan}}
+Propose the plan intent.
