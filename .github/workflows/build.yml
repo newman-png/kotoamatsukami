@@ -41,6 +41,9 @@ jobs:
           KOTO_KEY_PASSWORD: ${{ secrets.KOTO_KEY_PASSWORD }}
         run: ./gradlew --no-daemon :app:assembleDebug
 
+      - name: APK contents (everything but code and Android resources)
+        run: unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -vE ' (res/|classes[0-9]*\.dex|META-INF/)' || true
+
       - uses: actions/upload-artifact@v4
         with:
           name: kotoamatsukami-debug-apk
