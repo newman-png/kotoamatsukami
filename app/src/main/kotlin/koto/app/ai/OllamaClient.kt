@@ -51,6 +51,9 @@ class OllamaClient(private val settings: PlannerSettings) : Llm {
             ?: throw LlmUnavailable("the laptop answered without a message")
     }
 
+    /** Where requests go, for the planner log. */
+    fun address(): String = "${settings.host}:${settings.port} (${settings.model})"
+
     /** One plain sentence on whether the laptop and the models are there. Blocking. */
     fun check(): String = try {
         val tags = parse(call("/api/tags", null, CHECK_TIMEOUT_MS))
@@ -72,7 +75,7 @@ class OllamaClient(private val settings: PlannerSettings) : Llm {
         val c = try {
             url.openConnection() as HttpURLConnection
         } catch (e: IOException) {
-            throw LlmUnavailable("cannot open ${settings.host}:${settings.port}", e)
+            throw LlmUnavailable("cannot open $url: ${e.javaClass.simpleName}: ${e.message}", e)
         }
         try {
             c.connectTimeout = CONNECT_TIMEOUT_MS
@@ -89,11 +92,11 @@ class OllamaClient(private val settings: PlannerSettings) : Llm {
             val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
             if (code !in 200..299) {
                 val error = runCatching { Json.parseToJsonElement(text).jsonObject["error"]?.jsonPrimitive?.contentOrNull }.getOrNull()
-                throw LlmUnavailable("the laptop said: ${error ?: "HTTP $code"}")
+                throw LlmUnavailable("HTTP $code from $path: ${error ?: text.take(200).ifEmpty { c.responseMessage.orEmpty() }}")
             }
             return text
         } catch (e: IOException) {
-            throw LlmUnavailable("${settings.host}:${settings.port} did not answer (${e.javaClass.simpleName})", e)
+            throw LlmUnavailable("$path to ${settings.host}:${settings.port} failed: ${e.javaClass.simpleName}: ${e.message}", e)
         } finally {
             c.disconnect()
         }
@@ -103,7 +106,7 @@ class OllamaClient(private val settings: PlannerSettings) : Llm {
         val address = try {
             InetAddress.getByName(settings.host.trim())
         } catch (e: IOException) {
-            throw LlmUnavailable("cannot find ${settings.host}", e)
+            throw LlmUnavailable("cannot find ${settings.host}: ${e.javaClass.simpleName}: ${e.message}", e)
         }
         if (!LanAddress.isPrivate(address.address)) {
             throw LlmUnavailable("${settings.host} is not on the home network. Only private addresses are allowed.")

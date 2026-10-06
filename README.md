@@ -143,7 +143,7 @@ Install the new build over the old one (or uninstall first if Android refuses: s
 
 4. The first plan takes a while: 4 drafts, each checked by code and reviewed by a critic. Expect 30 minutes to a few hours with a 14B model on that GPU. Until it's ready, takeovers are short easy pulses and never sieges.
 5. When it's done the main screen says `plan: ready.` and nothing more: you never see the plan.
-6. If something goes wrong, the line under it says what (for example *Laptop not reached: ...*). `laptop` → `try now` starts again at once.
+6. If something goes wrong, the line under it says what: *Laptop not reached: ...* with the network error or the laptop's HTTP status, or *Planner error: ...* with the exception. `log` lists what the planner tried, newest first (attempts, errors, which drafts passed and which rules the others broke; never the plan itself). `laptop` → `try now` starts again at once.
 
 **The days**
 

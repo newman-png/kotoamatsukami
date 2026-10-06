@@ -23,4 +23,6 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    // AndroidRegexTest reads the app's sources too.
+    systemProperty("koto.root", rootDir.absolutePath)
 }

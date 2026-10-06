@@ -1,6 +1,7 @@
 package koto.app.ui
 
 import android.os.Bundle
+import koto.app.data.PlannerLog
 import koto.app.data.SpellLog
 import java.time.Instant
 import java.time.ZoneId
@@ -8,7 +9,8 @@ import java.time.format.DateTimeFormatter
 
 /**
  * The raw record of what happened: results only, never what is planned. A plain check that
- * logging works until the weekly report (Layer 4) replaces this screen.
+ * logging works until the weekly report (Layer 4) replaces this screen. The planner's lines say
+ * what it tried and what went wrong, never what the plan contains.
  */
 class LogActivity : KotoActivity() {
 
@@ -27,6 +29,12 @@ class LogActivity : KotoActivity() {
         term.title("log")
         term.line("Distraction-app opens today: $opensToday.", Pixel.GREY)
         term.line("Marks today: ${rows.count { it.mark && isToday(it.startedAt) }}.", Pixel.GREY)
+        val planner = PlannerLog.recent(this, PLANNER_LINES)
+        if (planner.isNotEmpty()) {
+            term.gap(0.5f)
+            term.line("planner, newest first:", Pixel.GREY)
+            for (line in planner) term.line(line, Pixel.GREY, term.small)
+        }
         term.gap(0.5f)
         if (rows.isEmpty()) term.line("Nothing yet.")
         for (r in rows) {
@@ -53,6 +61,7 @@ class LogActivity : KotoActivity() {
 
     private companion object {
         const val LIMIT = 40
+        const val PLANNER_LINES = 15
         val TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("MM-dd HH:mm")
     }
 }

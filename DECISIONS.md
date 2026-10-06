@@ -166,6 +166,8 @@ Universal last resorts (documented in the README): Android Safe Mode (long-press
 - `.github/workflows/build.yml` runs on every push. It runs the `core` unit tests, lint, and `assembleDebug`, and uploads the APK as a workflow artifact. The phone can download it from the Actions run page.
 - **Signing.** CI signs with a keystore from repository secrets if they exist (`KOTO_KEYSTORE_BASE64`, `KOTO_KEYSTORE_PASSWORD`, `KOTO_KEY_ALIAS`, `KOTO_KEY_PASSWORD`). Otherwise it uses a throwaway debug key. With a throwaway key, each CI build has a different signature, so updating means uninstalling first. Local Android Studio builds use the developer's own debug key. No keystore is committed (public repo).
 - `./gradlew -Pkoto.coreOnly=true :core:test` runs every pure-logic test without an Android SDK.
+- **Android's regex engine is ICU, not the JVM's.** It rejects a bare `}` or `]` that the JVM reads as a literal. A placeholder check in the prompt code did exactly that and stopped every planner run on the phone before the first request, while every JVM test passed. `AndroidRegexTest` now checks every `Regex(...)` literal in `core` and `app` against ICU's rule, and CI fails if the prompt files are missing from the APK.
+- **Planner log (L3).** The planner writes what it tried to a small log shown on the `log` screen: attempts, the exception or HTTP status of a failure, which drafts passed and the names of the rules the others broke. Never the plan's content (the plan stays hidden); full details go to logcat. The main screen shows one short line with the reason.
 
 ## 12. Build order and status
 

@@ -16,6 +16,9 @@ object Prompts {
 
     private val cache = HashMap<String, String>()
 
+    /** Every brace escaped: Android's regex engine (ICU) rejects a bare "}" that the JVM accepts. */
+    private val PLACEHOLDER = Regex("\\{\\{(\\w+)\\}\\}")
+
     fun text(name: String): String = synchronized(cache) {
         cache.getOrPut(name) {
             val stream = Prompts::class.java.getResourceAsStream("/koto/prompts/$name.txt")
@@ -27,7 +30,7 @@ object Prompts {
     fun fill(name: String, values: Map<String, String>): String {
         var out = text(name)
         for ((k, v) in values) out = out.replace("{{$k}}", v)
-        val left = Regex("\\{\\{(\\w+)}}").find(out)
+        val left = PLACEHOLDER.find(out)
         check(left == null) { "prompt $name: no value for ${left!!.value}" }
         return out
     }

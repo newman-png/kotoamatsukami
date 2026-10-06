@@ -41,8 +41,13 @@ jobs:
           KOTO_KEY_PASSWORD: ${{ secrets.KOTO_KEY_PASSWORD }}
         run: ./gradlew --no-daemon :app:assembleDebug
 
-      - name: APK contents (everything but code and Android resources)
-        run: unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -vE ' (res/|classes[0-9]*\.dex|META-INF/)' || true
+      # The planner loads its prompts from Java resources; an APK without them can't plan.
+      - name: Prompts are in the APK
+        run: |
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'koto/prompts/' || true
+          for p in planner_system planner_user replan repair critic_system critic_user writer_system writer_user; do
+            unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -q "koto/prompts/$p.txt" || { echo "missing from the APK: koto/prompts/$p.txt"; exit 1; }
+          done
 
       - uses: actions/upload-artifact@v4
         with:

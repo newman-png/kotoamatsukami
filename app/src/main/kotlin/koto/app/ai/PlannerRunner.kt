@@ -9,10 +9,12 @@ import android.os.Build
 import android.os.PowerManager
 import android.util.Log
 import koto.app.data.PlanStore
+import koto.app.data.PlannerLog
 import koto.app.data.SpellLog
 import koto.app.data.Store
 import koto.core.ai.LlmUnavailable
 import koto.core.ai.MasterPlanner
+import koto.core.ai.PlannerReport
 import koto.core.ai.TaskWriter
 import koto.core.plan.CompactState
 import koto.core.plan.History
@@ -46,6 +48,7 @@ object PlannerRunner {
 
     private val worker = Executors.newSingleThreadExecutor { Thread(it, "koto-planner").apply { priority = Thread.MIN_PRIORITY } }
     private val busy = AtomicBoolean(false)
+    @Volatile private var lastScheduleLine = ""
 
     /** True while the planner thread is working. */
     fun isWorking(): Boolean = busy.get()
@@ -60,15 +63,24 @@ object PlannerRunner {
                 ?.apply { setReferenceCounted(false); acquire(WAKE_LOCK_MS) }
             try {
                 work(app)
-            } catch (e: RuntimeException) {
-                Log.e(TAG, "planner run failed", e)
-                PlanStore(app).updateStatus { it.copy(note = "The planner hit an error. It will try again.") }
+            } catch (e: Exception) {
+                failed(app, e)
+            } catch (e: LinkageError) {
+                // A class that failed to load or initialise must not take the takeovers down with it.
+                failed(app, e)
             } finally {
                 lock?.let { if (it.isHeld) it.release() }
                 busy.set(false)
                 schedule(app)
             }
         }
+    }
+
+    /** A bug, not a missing laptop: the cause goes to the planner log and, short, to the main screen. */
+    private fun failed(context: Context, e: Throwable) {
+        val reason = PlannerReport.describe(e)
+        PlannerLog.add(context, "error: $reason", e)
+        PlanStore(context).updateStatus { it.copy(note = "Planner error: ${PlannerReport.short(reason)}") }
     }
 
     /** Arms the planner's alarm for its next run, or cancels it when there is nothing to plan. */
@@ -97,6 +109,11 @@ object PlannerRunner {
             alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi)
         }
         Log.i(TAG, "next planner run at ${LocalDateTime.ofInstant(Instant.ofEpochMilli(atMs), zone)}")
+        val nextLine = "next try ${LocalDateTime.ofInstant(Instant.ofEpochMilli(atMs), zone).toLocalTime().withNano(0)}"
+        if (nextLine != lastScheduleLine) {
+            lastScheduleLine = nextLine
+            PlannerLog.add(context, nextLine)
+        }
     }
 
     fun cancel(context: Context) {
@@ -105,17 +122,17 @@ object PlannerRunner {
 
     private fun work(context: Context) {
         val store = PlanStore(context)
-        val profile = store.profile() ?: return
-        val settings = store.settings() ?: return
-        val config = Store(context).config() ?: return
+        val profile = store.profile() ?: return PlannerLog.add(context, "nothing to do: no setup")
+        val settings = store.settings() ?: return PlannerLog.add(context, "nothing to do: no laptop address")
+        val config = Store(context).config() ?: return PlannerLog.add(context, "nothing to do: no windows")
         store.updateStatus { it.copy(lastAttemptMs = System.currentTimeMillis()) }
         val llm = OllamaClient(settings)
         try {
             val plan = store.plan()
             if (plan == null) firstPlan(context, store, profile, config, llm) else night(context, store, profile, config, plan, llm)
         } catch (e: LlmUnavailable) {
-            Log.i(TAG, "laptop unavailable: ${e.message}")
-            store.updateStatus { it.copy(note = "Laptop not reached: ${e.message}") }
+            PlannerLog.add(context, "laptop not reached: ${e.message}" + (e.cause?.let { " (${it.javaClass.simpleName})" } ?: ""))
+            store.updateStatus { it.copy(note = PlannerReport.short("Laptop not reached: ${e.message}")) }
         }
     }
 
@@ -124,19 +141,23 @@ object PlannerRunner {
         val ctx = PlanContexts.initial(profile, config.windows, start)
         val problems = SetupChecks.problems(ctx)
         if (problems.isNotEmpty()) {
+            PlannerLog.add(context, "setup problem: ${problems.first()}")
             store.updateStatus { it.copy(note = problems.first()) }
             return
         }
+        PlannerLog.add(context, "first plan: asking ${llm.address()}")
         val state = CompactState.render(profile, null, start, emptyList())
-        when (val r = MasterPlanner(llm).plan(profile, ctx, state)) {
+        val r = MasterPlanner(llm).plan(profile, ctx, state)
+        report(context, r.report)
+        when (r) {
             is MasterPlanner.Result.Ok -> {
-                r.report.forEach { Log.i(TAG, it) }
                 store.savePlan(r.plan)
+                PlannerLog.add(context, "plan accepted, starts $start")
                 store.updateStatus { it.copy(lastSuccessMs = System.currentTimeMillis(), note = "", nightDoneFor = null) }
                 writeBooks(context, store, profile, config, r.plan, start, llm)
             }
             is MasterPlanner.Result.Failed -> {
-                r.report.forEach { Log.w(TAG, it) }
+                PlannerLog.add(context, "no draft passed the checks")
                 store.updateStatus { it.copy(note = "No draft passed the checks. Trying again.") }
             }
         }
@@ -144,16 +165,20 @@ object PlannerRunner {
 
     private fun night(context: Context, store: PlanStore, profile: Profile, config: SpellConfig, current: MasterPlan, llm: OllamaClient) {
         val date = NightClock.nextWakingDate(config.windows, LocalDateTime.now())
+        PlannerLog.add(context, "night work for $date: asking ${llm.address()}")
         var plan = PlanKeeper.ensureWeek(context, store, current, date, config)
         val week = plan.weekIndexOf(date)
         if (week in 2..PlanRules.MAX_WEEKS && store.status().aiReplanWeek < week) {
             val prepared = PlanKeeper.prepareReplan(context, store, profile, plan, week, date, config)
             val state = CompactState.render(profile, plan, date, store.summaries())
             val r = MasterPlanner(llm, MasterPlanner.Settings(drafts = REPLAN_DRAFTS)).plan(profile, prepared.ctx, state, plan.intent, prepared.signals)
-            r.report.forEach { Log.i(TAG, it) }
+            report(context, r.report)
             if (r is MasterPlanner.Result.Ok) {
                 plan = plan.merge(r.plan)
                 store.savePlan(plan)
+                PlannerLog.add(context, "week $week re-planned by the laptop")
+            } else {
+                PlannerLog.add(context, "week $week: the laptop's re-plan failed the checks; the code re-plan stays")
             }
             // A failed re-plan keeps the code re-plan; it isn't retried all night.
             store.updateStatus { it.copy(aiReplanWeek = week, codeReplanWeek = maxOf(it.codeReplanWeek, week)) }
@@ -177,14 +202,26 @@ object PlannerRunner {
             if (plan.weekFor(date) == null) continue
             val specs = PlanKeeper.compose(store, plan, date, config)
             val state = CompactState.render(profile, plan, date, store.summaries())
-            val book = TaskWriter(llm).write(date, plan.weekIndexOf(date), specs, state, lines, Random.Default)
+            val notes = ArrayList<String>()
+            val book = TaskWriter(llm).write(date, plan.weekIndexOf(date), specs, state, lines, Random.Default, notes)
                 .copy(planRevision = plan.revision)
+            notes.forEach { PlannerLog.add(context, it) }
             // A day that has already begun keeps the book its takeovers were planned from.
-            if (!LocalDateTime.now(zone).isBefore(config.windows.wakingPeriod(date).first)) continue
+            if (!LocalDateTime.now(zone).isBefore(config.windows.wakingPeriod(date).first)) {
+                PlannerLog.add(context, "tasks for $date arrived after the day began; not used")
+                continue
+            }
             store.saveBook(book)
-            Log.i(TAG, "book for $date written by ${book.writer}")
         }
         store.updateStatus { it.copy(nightDoneFor = first.toString(), lastSuccessMs = System.currentTimeMillis(), note = "") }
+    }
+
+    /** Draft outcomes to the planner log (rule names only); the full report to logcat. */
+    private fun report(context: Context, lines: List<String>) {
+        for (line in lines) {
+            Log.i(TAG, line)
+            PlannerLog.add(context, PlannerReport.visible(line))
+        }
     }
 
     private fun pendingIntent(context: Context): PendingIntent = PendingIntent.getBroadcast(
